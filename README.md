@@ -62,18 +62,20 @@ Remplacez ensuite `formation` par `.venv/bin/python -m podia_formation` dans les
 
 ## 2. Utilisation
 
-Adresse de la formation (ou de n'importe quelle leçon) :
+Adresse à utiliser dans toutes les commandes : celle d'une **leçon**, par exemple la première :
 
 ```
-https://zonebourse.podia.com/p/courses/investir-en-bourse
+https://zonebourse.podia.com/p/courses/investir-en-bourse/341447-module-1-introduction/973419-introduction
 ```
+
+N'utilisez pas l'adresse raccourcie `https://zonebourse.podia.com/p/courses/investir-en-bourse` : Podia répond « page introuvable » (erreur 404). Pour une autre leçon, copiez l'adresse depuis la barre d'adresse du navigateur quand la leçon est affichée.
 
 ### Étape 0 : se connecter (une seule fois)
 
 L'outil utilise son propre profil de navigateur, séparé de votre Edge ou Chrome habituel : il faut donc vous y connecter une fois. Pendant la connexion, la fenêtre est un Edge tout à fait normal, que l'outil ne pilote pas : la vérification anti-robot de Cloudflare passe comme d'habitude. L'outil ne prend la main qu'après votre connexion.
 
 ```bat
-formation connexion "https://zonebourse.podia.com/p/courses/investir-en-bourse/341465-module-2-se-lancer/973576-se-lancer"
+formation connexion "https://zonebourse.podia.com/p/courses/investir-en-bourse/341447-module-1-introduction/973419-introduction"
 ```
 
 - Une fenêtre Edge s'ouvre sur la page de connexion de Podia.
@@ -88,7 +90,7 @@ Pour utiliser Chrome au lieu d'Edge, ajoutez `--navigateur chrome` à toutes les
 Elle vérifie sur **une seule leçon** que tout fonctionne avec votre compte :
 
 ```bat
-formation sonde "https://zonebourse.podia.com/p/courses/investir-en-bourse/341465-module-2-se-lancer/973576-se-lancer"
+formation sonde "https://zonebourse.podia.com/p/courses/investir-en-bourse/341447-module-1-introduction/973419-introduction"
 ```
 
 - L'outil analyse la leçon et récupère son audio dans `formation\sonde\audio\`.
@@ -98,7 +100,7 @@ formation sonde "https://zonebourse.podia.com/p/courses/investir-en-bourse/34146
 ### Étape 2 : inventaire + audio de toute la formation
 
 ```bat
-formation audio "https://zonebourse.podia.com/p/courses/investir-en-bourse"
+formation audio "https://zonebourse.podia.com/p/courses/investir-en-bourse/341447-module-1-introduction/973419-introduction"
 ```
 
 Comptez 30 à 60 minutes pour environ 94 leçons. À la fin, l'outil affiche **le nombre d'heures de vidéo**, le temps de lecture des articles et le temps d'étude total estimé. Le détail est dans `formation\resume.md`.
@@ -149,7 +151,7 @@ Le planning est dans `formation\planning.md`. Pour l'agenda, importez `formation
 ### Tout d'un coup
 
 ```bat
-formation tout "https://zonebourse.podia.com/p/courses/investir-en-bourse" --debut 01/10/2026
+formation tout "https://zonebourse.podia.com/p/courses/investir-en-bourse/341447-module-1-introduction/973419-introduction" --debut 01/10/2026
 ```
 
 ---
@@ -189,6 +191,7 @@ Le planning fait **autant de séances que possible en gardant chacune à au moin
 | Symptôme | Solution |
 |---|---|
 | « Échec de la vérification » (Cloudflare) sur la page de connexion | Fermez toutes les fenêtres ouvertes par l'outil, mettez l'outil à jour, puis relancez `formation connexion`. Si la vérification échoue encore, cliquez sur « Résolution de problèmes » ou rechargez la page (F5) dans la même fenêtre. |
+| « Page introuvable (erreur 404) » | L'adresse est incomplète : utilisez l'adresse d'une leçon (voir le début de la partie 2), pas `…/p/courses/investir-en-bourse` seule. |
 | « Vous n'êtes pas connecté à Podia » | Lancez `formation connexion "<adresse>"`, connectez-vous dans la fenêtre, puis appuyez sur Entrée. Le travail déjà fait est gardé. |
 | « Aucune leçon trouvée » ou « lecteur vidéo repéré mais flux non capté » | Relancez avec `--diagnostic`. Le dossier `formation\diagnostic\` contient la page, les requêtes réseau et une capture d'écran. E-mail, nom et liens signés y sont masqués, mais la capture montre la page telle quelle : vérifiez-la avant de l'envoyer. |
 | « leçon inaccessible (verrouillée ?) » | La leçon n'est pas encore ouverte (déblocage progressif) : elle sera reprise à un prochain lancement. |

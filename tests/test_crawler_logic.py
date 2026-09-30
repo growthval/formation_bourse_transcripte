@@ -123,3 +123,14 @@ def test_pdf_page_count_with_compressed_objects():
     # Pages rangées dans un flux compressé : seul le /Count du dictionnaire /Pages est lisible.
     data = b"%PDF-1.5 << /Type /Pages /Kids [3 0 R] /Count 5 >> stream x\x9c... endstream"
     assert pdf_page_count(data) == 5
+
+
+def test_module_numbers_follow_the_course():
+    lessons = build_lessons(ITEMS, "investir-en-bourse")
+    for l in lessons:
+        l.module_title = {"1": "Module 2: Se lancer", "2": "Module 7 la diversification", "3": "Module 8 terminologie"}[l.module_id]
+    renumber(lessons)
+    assert [l.module_index for l in lessons] == [2, 7, 7, 8]
+    lessons[0].module_title = "Bonus"                     # un module sans numéro : numérotation dans l'ordre
+    renumber(lessons)
+    assert [l.module_index for l in lessons] == [1, 2, 2, 3]

@@ -647,7 +647,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     def common(sp, url=True):
         if url:
-            sp.add_argument("url", help="adresse de la formation ou d'une leçon (…/p/courses/…)")
+            sp.add_argument("url", help="adresse d'une leçon de la formation (…/p/courses/<formation>/<module>/<leçon>)")
         sp.add_argument("--sortie", type=Path, default=DEFAULT_OUT, help="dossier de sortie (défaut : ./formation)")
         sp.add_argument("--forcer", action="store_true", help="refaire même ce qui est déjà fait")
 

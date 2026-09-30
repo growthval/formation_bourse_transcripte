@@ -42,6 +42,7 @@ def site(tmp_path_factory):
 def fresh_site(site):
     site.manifest_hits.clear()
     site.expire_after, site.locked, site.lesson_pages_served, site.auto_login = None, set(), 0, True
+    site.root_404 = False
     return site
 
 
@@ -231,6 +232,23 @@ def test_login_in_an_unpiloted_browser_then_attach(fresh_site, tmp_path, monkeyp
         cr.open_course(site.lesson_url("1003"))
         assert not any("pas encore connecté" in m for m in messages)
         assert cr.visit(site.lesson_url("1001")).videos
+
+
+def test_course_address_returning_404_is_reported_without_login_loop(fresh_site, tmp_path, capsys):
+    """Zonebourse : l'adresse de la formation sans la leçon renvoie 404 ; on le dit au lieu de redemander la connexion."""
+    from podia_formation import cli
+
+    site = fresh_site
+    profile = tmp_path / "profil"
+    login_profile(profile, site)
+    site.root_404 = True
+    site.auto_login = False
+    root = site.lesson_url("1001").rsplit("/", 2)[0]
+    assert cli.main(["inventaire", root, *common_args(tmp_path, profile)]) == 1
+    out = capsys.readouterr().out
+    assert "erreur 404" in out and "adresse complète d'une leçon" in out
+    assert "pas encore connecté" not in out and "pas connecté" not in out
+    assert cli.main(["inventaire", site.lesson_url("1001"), *common_args(tmp_path, profile)]) == 0
 
 
 def test_headless_without_session_fails_cleanly(fresh_site, tmp_path, capsys, monkeypatch):

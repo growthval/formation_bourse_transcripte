@@ -96,12 +96,27 @@ JS_AUTH_STATE = r"""
   const LOGIN = /^(se connecter|connexion|connectez-vous|me connecter|s'identifier|log ?in|sign ?in)$/i;
   const LOGOUT = /(déconnexion|se déconnecter|log ?out|sign ?out)/i;
   const href = (e) => e.getAttribute('href') || '';
-  const loginLink = els.some(e => LOGIN.test(txt(e)) || /\/(login|sign_in|signin)(?:[\/?#]|$)/i.test(href(e)));
+  const own = (h) => { try { return new URL(h, location.href).origin === location.origin; } catch (e) { return false; } };
+  const loginLink = els.some(e => (LOGIN.test(txt(e)) && (!href(e) || own(href(e))))
+                                  || (own(href(e)) && /\/(login|sign_in|signin)(?:[\/?#]|$)/i.test(href(e))));
   const logout = els.some(e => LOGOUT.test(txt(e)) || /\/(logout|sign_out|signout)(?:[\/?#]|$)/i.test(href(e)));
   const password = !!document.querySelector('input[type=password]');
   const body = document.body ? document.body.innerText.slice(0, 30000) : '';
   const gate = /(connectez-vous|identifiez-vous|log in|sign in|inscrivez-vous|achetez|acheter)[^.\n]{0,60}(accéder|continuer|voir|regarder|access|continue|view)/i.test(body);
   return {loginLink, logout, password, gate, textLength: body.length};
+}
+"""
+
+JS_EXPAND_MODULES = r"""
+() => {
+  let n = 0;
+  for (const d of document.querySelectorAll('details:not([open])')) { d.open = true; n++; }
+  for (const b of document.querySelectorAll('[aria-expanded="false"]')) {
+    if (b.matches('a[href]') || b.closest('a[href]')) continue;
+    if (!/module|section|chapitre|partie/i.test((b.innerText || b.getAttribute('aria-label') || '').trim())) continue;
+    try { b.click(); n++; } catch (e) {}
+  }
+  return n;
 }
 """
 
@@ -440,14 +455,25 @@ def better_title(current: str, candidate: str, lesson_slug: str) -> bool:
 
 
 def renumber(lessons: list[Lesson]) -> None:
-    """Renumérote après l'ajout d'une leçon découverte en cours de route."""
+    """Renumérote (après l'ajout d'une leçon découverte en cours de route).
+
+    Les modules gardent le numéro de la formation (« Module 7 : … » -> M07) quand tous en ont un ;
+    sinon ils sont numérotés dans l'ordre.
+    """
     module_order: dict[str, int] = {}
     counters: dict[str, int] = {}
+    numbers: dict[str, int | None] = {}
     for i, lesson in enumerate(lessons, start=1):
         lesson.index = i
         lesson.module_index = module_order.setdefault(lesson.module_id, len(module_order) + 1)
         counters[lesson.module_id] = counters.get(lesson.module_id, 0) + 1
         lesson.lesson_index = counters[lesson.module_id]
+        m = re.match(r"(?i)\s*module\s*(\d+)", lesson.module_title or "")
+        numbers.setdefault(lesson.module_id, int(m.group(1)) if m else None)
+    values = list(numbers.values())
+    if values and None not in values and len(set(values)) == len(values):
+        for lesson in lessons:
+            lesson.module_index = numbers[lesson.module_id]
 
 
 def lesson_from_url(url: str, module_title: str = "") -> Lesson | None:
@@ -508,6 +534,10 @@ class NotLoggedIn(RuntimeError):
 
 
 class LessonUnavailable(RuntimeError):
+    pass
+
+
+class PageNotFound(ValueError):
     pass
 
 
@@ -812,13 +842,17 @@ class Crawler:
         return self._frame_eval(self.page.main_frame, JS_AUTH_STATE) or {}
 
     def logged_out(self) -> bool:
-        """La page est-elle vue sans être connecté ? (bouton « Se connecter », formulaire, page verrouillée)."""
+        """La page est-elle vue sans être connecté ? (formulaire ou bouton « Se connecter » du site).
+
+        Le texte des leçons n'est pas utilisé : un article sur les adages boursiers (« Achetez au son du
+        canon… ») ressemblerait sinon à une page réservée aux inscrits.
+        """
         state = self._auth_state()
         if any(w in urlparse(self.page.url).path.lower() for w in LOGIN_WORDS) or state.get("password"):
             return True
         if state.get("logout"):
             return False
-        return bool(state.get("loginLink") or state.get("gate"))
+        return bool(state.get("loginLink"))
 
     def _wait_stable(self, max_seconds: float = 6.0) -> None:
         """Attend que le contenu de la page (chargé par JavaScript) ait fini de s'afficher."""
@@ -843,18 +877,38 @@ class Crawler:
         course = course_slug_from_url(start_url)
         if not course:
             raise ValueError("L'adresse doit contenir /p/courses/<nom-de-la-formation>.")
-        page = self.page
-        page.goto(start_url, wait_until="domcontentloaded", timeout=90_000)
+        self._goto_start(start_url)
         self._settle()
         has_lessons = self._wait_lessons(course, 10_000)
         if self.logged_out():
             self._login(start_url, course)
         elif not has_lessons and not self._find_lesson_page(course):
             self._login(start_url, course)
-        data = self.page.evaluate(JS_SIDEBAR)      # la page a pu changer pendant la connexion
+        data = self._read_sidebar()                # la page a pu changer pendant la connexion
+        listed = build_lessons(data["items"], course)
+        on_lesson = bool(LESSON_URL_RE.search(urlparse(self.page.url).path))
+        if listed and not on_lesson:
+            # Page d'accueil de la formation (sommaire parfois partiel) : on relit le sommaire depuis une leçon.
+            # Les leçons absentes du sommaire sont ensuite trouvées via « Continuer ».
+            try:
+                self.page.goto(listed[0].url, wait_until="domcontentloaded", timeout=90_000)
+                self._settle()
+                other = self._read_sidebar()
+                if len(build_lessons(other["items"], course)) > len(listed):
+                    data = other
+            except Exception:
+                pass
         data["course"] = course
         data["url"] = self.page.url
         return data
+
+    def _read_sidebar(self) -> dict:
+        try:
+            if self.page.evaluate(JS_EXPAND_MODULES):
+                self.page.wait_for_timeout(1200)       # modules repliés : on les déplie avant de lire
+        except Exception:
+            pass
+        return self.page.evaluate(JS_SIDEBAR)
 
     def _find_lesson_page(self, course: str) -> bool:
         """Page d'accueil de la formation sans liste de leçons : on ouvre un module ou « Reprendre »."""
@@ -873,8 +927,16 @@ class Crawler:
                 continue
         return False
 
+    def _goto_start(self, url: str) -> None:
+        resp = self.page.goto(url, wait_until="domcontentloaded", timeout=90_000)
+        if resp is not None and resp.status == 404:
+            # Ex. l'adresse de la formation sans la leçon : Podia répond « page introuvable ».
+            raise PageNotFound(f"Page introuvable (erreur 404) : {url}\n"
+                               "Utilisez l'adresse complète d'une leçon, copiée depuis la barre d'adresse du "
+                               "navigateur quand la leçon est affichée (…/p/courses/<formation>/<module>/<leçon>).")
+
     def _connected(self, start_url: str, course: str) -> bool:
-        self.page.goto(start_url, wait_until="domcontentloaded", timeout=90_000)
+        self._goto_start(start_url)
         self._settle()
         if self.logged_out():
             return False
@@ -897,6 +959,13 @@ class Crawler:
         threading.Thread(target=wait_enter, daemon=True).start()
         return pressed
 
+    def _open_tab(self, url: str) -> None:
+        """Ouvre un onglet sans piloter le navigateur (la vérification Cloudflare reste normale)."""
+        try:
+            self._devtools("/json/new?" + url, method="PUT")
+        except Exception:
+            pass
+
     def _login_cdp(self, start_url: str, course: str) -> None:
         """Connexion dans un navigateur ordinaire, non piloté : la vérification Cloudflare passe normalement."""
         origin = "{0.scheme}://{0.netloc}".format(urlparse(start_url))
@@ -910,28 +979,42 @@ class Crawler:
                  ">>> Ne fermez pas cette fenêtre. Quand vous êtes connecté, revenez ici et appuyez sur Entrée.\n")
         pressed = self._enter_listener()
         deadline = time.monotonic() + self.login_timeout
-        quiet = 0
+        quiet, auto_used, attempts = 0, False, 0
         while time.monotonic() < deadline:
             time.sleep(1.5)
             if self._proc is None or self._proc.poll() is not None:
                 raise NotLoggedIn("La fenêtre du navigateur a été fermée avant la connexion.")
             urls = [u for u in self._tab_urls() if u.startswith(origin)]
             quiet = quiet + 1 if urls and not any(on_login(u) for u in urls) else 0
-            if not (pressed.is_set() or quiet >= 3):
+            auto = not auto_used and quiet >= 3          # détection automatique : une seule fois
+            if not (pressed.is_set() or auto):
                 continue
+            auto_used = True
+            attempts += 1
             self._attach()                       # l'outil ne prend la main qu'une fois la connexion faite
+            ok, still_out = False, True
             try:
-                if self._connected(start_url, course):
-                    self.log(">>> Connexion réussie.\n")
-                    self._settle()
-                    return
+                ok = self._connected(start_url, course)
+                still_out = self.logged_out()
+            except PageNotFound:
+                raise
             except Exception:
                 pass
-            self.log(">>> La connexion n'est pas encore détectée : terminez-la dans la fenêtre du navigateur, "
-                     "puis appuyez de nouveau sur Entrée.")
-            self._close_process()
-            self._start_process(origin + "/login")
-            quiet = 0
+            if ok:
+                self.log(">>> Connexion réussie.\n")
+                self._settle()
+                return
+            self._detach()                       # on rend la main sans fermer la fenêtre
+            if attempts >= 5:
+                raise NotLoggedIn("Connexion non confirmée après plusieurs essais. Envoyez une capture de la fenêtre "
+                                  "du navigateur et de cette console pour analyse.")
+            if still_out:
+                self._open_tab(origin + "/login")
+                self.log(">>> Vous n'êtes pas encore connecté : terminez la connexion dans l'onglet ouvert, "
+                         "puis appuyez de nouveau sur Entrée.")
+            else:
+                self.log(">>> La page de la formation ne s'affiche pas comme prévu. Vérifiez la fenêtre du navigateur, "
+                         "puis appuyez de nouveau sur Entrée.")
             if pressed.is_set():
                 pressed = self._enter_listener()
         raise NotLoggedIn("Connexion non détectée dans le délai imparti.")
@@ -963,11 +1046,7 @@ class Crawler:
                     pass
 
         def connected() -> bool:
-            page.goto(start_url, wait_until="domcontentloaded", timeout=90_000)
-            self._settle()
-            if self.logged_out():
-                return False
-            return self._wait_lessons(course, 10_000) or self._find_lesson_page(course)
+            return self._connected(start_url, course)
 
         open_login_page()
         self.log("\n>>> Vous n'êtes pas encore connecté.\n"
@@ -999,7 +1078,7 @@ class Crawler:
                         break
                     quiet_polls = 0
                     open_login_page()
-            except NotLoggedIn:
+            except (NotLoggedIn, PageNotFound):
                 raise
             except Exception:
                 continue

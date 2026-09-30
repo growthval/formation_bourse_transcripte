@@ -69,6 +69,7 @@ class FakePodia:
         self.locked: set[str] = set()           # leçons verrouillées (redirigées vers l'accueil de la formation)
         self.lesson_pages_served = 0
         self.public_preview = False     # True : sommaire visible sans connexion (comme Zonebourse)
+        self.root_404 = False           # True : l'adresse de la formation sans leçon renvoie 404 (comme Zonebourse)
         self.site = ThreadingHTTPServer(("127.0.0.1", 0), self._site_handler())
         self.cdn = ThreadingHTTPServer(("127.0.0.1", 0), self._cdn_handler())
         self.site_url = f"http://127.0.0.1:{self.site.server_address[1]}"
@@ -120,7 +121,8 @@ class FakePodia:
         elif kind == "article" and lid == "1002":
             # Texte riche comme l'éditeur de Podia (Trix) : des <div> et des <br>, pas de <p>.
             body = ('<div class="trix-content"><div>' + ARTICLE + "<br><br>Deuxième idée : investir tôt."
-                    "<ul><li>Investir tôt</li><li>Diversifier</li></ul>Conclusion : rester patient.</div>"
+                    "<ul><li>Investir tôt</li><li>Diversifier</li></ul>Conclusion : rester patient. "
+                    "Achetez au son du canon, vendez au son du violon : il faut savoir voir plus loin.</div>"
                     '<div><a href="/content-assets/fiche.pdf">Télécharger la fiche pratique</a></div></div>'
                     '<section class="comments"><p>Super cours, merci ! (Didier)</p></section>')
         elif kind == "article":
@@ -190,6 +192,8 @@ class FakePodia:
                     if not logged:
                         return self.send(302, headers={"Location": f"/login?return_to={quote(self.path)}"})
                     parts = url.path.rstrip("/").split("/")
+                    if len(parts) == 4 and fake.root_404:
+                        return self.send(404, b"<html><body>Page introuvable</body></html>")
                     if len(parts) == 4:      # page de la formation -> première leçon
                         return self.send(302, headers={"Location": fake.lesson_url("1001")})
                     lesson_id = parts[-1].split("-")[0]
