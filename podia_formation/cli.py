@@ -1,0 +1,441 @@
+"""Ligne de commande : python -m podia_formation <commande> ..."""
+
+from __future__ import annotations
+
+import argparse
+import sys
+import time
+from datetime import date, datetime, timedelta
+from pathlib import Path
+from urllib.parse import urlparse
+
+from . import __version__
+from .models import DEFAULT_VIDEO_FACTOR, Attachment, Inventory, Lesson
+from .text import clean_lesson_text, count_words, format_duration, format_minutes, plural, reading_minutes
+
+DEFAULT_OUT = Path("formation")
+
+
+def log(msg: str = "") -> None:
+    print(msg, flush=True)
+
+
+def rel(path: Path, root: Path) -> str:
+    try:
+        return path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return str(path)
+
+
+# --- inventaire + audio -------------------------------------------------------
+
+def merge_listing(existing: Inventory | None, fresh: list[Lesson]) -> list[Lesson]:
+    """Garde les données déjà collectées pour les leçons connues (reprise après interruption)."""
+    if not existing:
+        return fresh
+    known = {l.lesson_id: l for l in existing.lessons}
+    merged = []
+    for lesson in fresh:
+        old = known.get(lesson.lesson_id)
+        if old:
+            for attr in ("index", "url", "module_index", "module_id", "module_title", "lesson_index"):
+                setattr(old, attr, getattr(lesson, attr))
+            if lesson.title and not old.visited:
+                old.title = lesson.title
+            merged.append(old)
+        else:
+            merged.append(lesson)
+    fresh_ids = {l.lesson_id for l in fresh}
+    merged += [l for l in existing.lessons if l.lesson_id not in fresh_ids]   # découvertes auparavant
+    return merged
+
+
+def audio_done(lesson: Lesson, root: Path) -> bool:
+    return bool(lesson.audio_files) and all((root / f).is_file() for f in lesson.audio_files)
+
+
+def crawl(args, want_audio: bool) -> Inventory:
+    from .crawler import Crawler, build_lessons, classify_lesson, course_title, lesson_from_url, renumber
+    root: Path = args.sortie
+    root.mkdir(parents=True, exist_ok=True)
+    inv_path = root / "inventaire.json"
+    existing = Inventory.load(inv_path) if inv_path.is_file() else None
+
+    with Crawler(browser=args.navigateur, headless=args.headless, profile=args.profil,
+                 executable=args.chemin_navigateur, log=log) as cr:
+        data = cr.open_course(args.url)
+        fresh = build_lessons(data["items"], data["course"])
+        if not fresh:
+            cr.write_diagnostic(root / "diagnostic", "page-formation", cr.snapshot())
+            raise SystemExit("Aucune leçon trouvée dans la page. Relancez avec --diagnostic et envoyez le dossier "
+                             "« diagnostic » pour analyse.")
+        inv = Inventory(course_url=args.url, course_title=course_title(data, data["course"]),
+                        site_origin="{0.scheme}://{0.netloc}".format(urlparse(args.url)),
+                        progress=list(data.get("progress") or []))
+        inv.lessons = merge_listing(existing, fresh)
+        renumber(inv.lessons)
+        inv.generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+        log(f"{len(inv.lessons)} leçons trouvées dans {len(inv.modules())} modules.")
+        if inv.progress:
+            log(f"Podia indique : {inv.progress[0]} sur {inv.progress[1]} terminés.")
+            if inv.progress[1] != len(inv.lessons):
+                log(f"⚠️ Podia annonce {inv.progress[1]} éléments mais {len(inv.lessons)} ont été listés "
+                    "(les leçons manquantes seront ajoutées si elles sont découvertes en chemin).")
+        inv.save(inv_path)
+
+        i = 0
+        diag_budget, auto_diag = 3, 5
+        while i < len(inv.lessons):
+            lesson = inv.lessons[i]
+            i += 1
+            needs_visit = args.forcer or not lesson.visited or (want_audio and lesson.kind == "video"
+                                                                and not audio_done(lesson, root))
+            if not needs_visit:
+                continue
+            log(f"[{lesson.index}/{len(inv.lessons)}] M{lesson.module_index} · {lesson.title}")
+            try:
+                res = cr.visit(lesson.url)
+                apply_visit(cr, lesson, res, root)
+                lesson.kind = classify_lesson(lesson.title, lesson.word_count, len(lesson.videos),
+                                              res.radio_groups, res.checkboxes, res.quiz_words,
+                                              len(lesson.attachments))
+                if lesson.kind == "quiz":
+                    lesson.quiz_questions = res.radio_groups
+                    lesson.reading_min = 0.0
+                missed = lesson.kind != "video" and res.player_seen and not lesson.videos
+                if missed:
+                    lesson.error = "lecteur vidéo repéré mais flux non capté"
+                # Diagnostic : demandé (3 premières leçons) ou automatique en cas d'échec (5 au plus).
+                if (args.diagnostic and diag_budget > 0) or (missed and auto_diag > 0):
+                    cr.write_diagnostic(root / "diagnostic", lesson.stem, res)
+                    if missed and not args.diagnostic:
+                        auto_diag -= 1
+                    else:
+                        diag_budget -= 1
+                lesson.visited = True
+                summary = [lesson.kind]
+                if lesson.video_duration_s:
+                    summary.append(format_duration(lesson.video_duration_s))
+                if lesson.word_count and lesson.kind != "video":
+                    summary.append(f"{lesson.word_count} mots")
+                log("    → " + ", ".join(summary))
+                if want_audio and lesson.kind == "video":
+                    try:
+                        fetch_audio(lesson, root)
+                    except Exception as exc:
+                        # Lien signé expiré ou refusé : on recharge la leçon pour en obtenir un neuf.
+                        log(f"    nouvel essai avec un lien vidéo frais ({exc})")
+                        fresh_res = cr.visit(lesson.url)
+                        if fresh_res.videos:
+                            lesson.videos = fresh_res.videos
+                        fetch_audio(lesson, root)
+                # Leçon suivante non listée (module replié dans la barre latérale, par exemple).
+                nxt = lesson_from_url(res.next_url, lesson.module_title) if res.next_url else None
+                if nxt and all(l.lesson_id != nxt.lesson_id for l in inv.lessons):
+                    log(f"    + leçon découverte via « Continuer » : {nxt.url}")
+                    inv.lessons.insert(i, nxt)
+                    renumber(inv.lessons)
+                time.sleep(1.0)      # rythme de navigation raisonnable
+            except KeyboardInterrupt:
+                inv.save(inv_path)
+                raise
+            except Exception as exc:     # une leçon en échec ne bloque pas les autres
+                lesson.error = f"{type(exc).__name__}: {exc}"[:300]
+                log(f"    ⚠️ {lesson.error}")
+            inv.save(inv_path)
+    return inv
+
+
+def apply_visit(cr, lesson: Lesson, res, root: Path) -> None:
+    from .crawler import title_is_from_slug
+
+    if res.title and (not lesson.title or title_is_from_slug(lesson)):
+        lesson.title = res.title
+    lesson.error = ""
+    text = clean_lesson_text(res.markdown, lesson.title)
+    first = text.split("\n", 1)[0].lstrip("# ").strip()
+    if first.casefold() == lesson.title.casefold():
+        text = text.split("\n", 1)[1].strip() if "\n" in text else ""
+    lesson.word_count = count_words(text)
+    lesson.reading_min = reading_minutes(lesson.word_count)
+    if text:
+        path = root / "textes" / f"{lesson.stem}.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"# {lesson.title}\n\n{text}\n\nSource : {lesson.url}\n", encoding="utf-8")
+        lesson.article_file = rel(path, root)
+    lesson.videos = res.videos
+    known = [v for v in res.videos if v.duration_s]
+    lesson.video_duration_s = sum(v.duration_s for v in known) if known else None
+    attachments: list[Attachment] = []
+    seen = set()
+    for f in res.files:
+        if f["url"] in seen:
+            continue
+        seen.add(f["url"])
+        try:
+            att = cr.download_file(f["url"], root / "fichiers", lesson.stem, f.get("name", ""))
+            if att:
+                att.path = rel(Path(att.path), root)
+                attachments.append(att)
+        except Exception as exc:
+            log(f"    ⚠️ fichier non téléchargé ({f['url']}) : {exc}")
+    lesson.attachments = attachments
+
+
+def fetch_audio(lesson: Lesson, root: Path) -> None:
+    from .media import DrmProtected, audio_duration, download_audio
+
+    files, subtitles, durations = [], [], []
+    for n, source in enumerate(lesson.videos, start=1):
+        suffix = f" (partie {n})" if len(lesson.videos) > 1 else ""
+        dest = root / "audio" / f"{lesson.stem}{suffix}"
+        try:
+            path, subs = download_audio(source, dest, root / "sous-titres" / f"{lesson.stem}{suffix}", log=log)
+        except DrmProtected:
+            lesson.error = "vidéo protégée par DRM : audio non récupérable"
+            log(f"    ⚠️ {lesson.error}")
+            continue
+        files.append(rel(path, root))
+        subtitles += [rel(p, root) for p in subs]
+        d = audio_duration(path)
+        if d:
+            durations.append(d)
+            if not source.duration_s:
+                source.duration_s = d
+        log(f"    ♪ audio : {path.name}" + (f" (+ {len(subs)} fichier(s) de sous-titres)" if subs else ""))
+    if files:
+        lesson.audio_files = files
+        lesson.subtitle_files = subtitles
+    if durations and not lesson.video_duration_s:
+        lesson.video_duration_s = sum(durations)
+
+
+# --- sonde (vérification sur une leçon) ------------------------------------------
+
+def cmd_sonde(args) -> None:
+    from .crawler import Crawler, build_lessons, classify_lesson
+    from .media import jwt_claims, list_formats, token_in
+
+    root: Path = args.sortie
+    with Crawler(browser=args.navigateur, headless=args.headless, profile=args.profil,
+                 executable=args.chemin_navigateur, log=log) as cr:
+        data = cr.open_course(args.url)
+        lessons = build_lessons(data["items"], data["course"])
+        log(f"Connexion OK. Barre latérale : {len(lessons)} leçons, "
+            f"{len({l.module_id for l in lessons})} modules."
+            + (f" Podia indique {data['progress'][1]} éléments." if data.get("progress") else ""))
+        for l in lessons[:3]:
+            log(f"   ex. M{l.module_index} « {l.module_title} » → {l.title}")
+        res = cr.visit(args.url)
+        cr.write_diagnostic(root / "diagnostic", "sonde", res)
+        words = count_words(clean_lesson_text(res.markdown, res.title))
+        kind = classify_lesson(res.title, words, len(res.videos), res.radio_groups, res.checkboxes,
+                               res.quiz_words, len(res.files))
+        log(f"\nLeçon : {res.title or '?'} → type {kind}, {words} mots, {len(res.files)} fichier(s)")
+        if res.player_seen and not res.videos:
+            log("⚠️ Un lecteur vidéo est présent mais aucun flux n'a été capté : envoyez le dossier diagnostic.")
+        for v in res.videos:
+            token = token_in(v.url)
+            claims = jwt_claims(token) if token else {}
+            shown = v.url.replace(token, "eyJ…") if token else v.url
+            log(f"Vidéo ({v.kind}) : {shown}")
+            log(f"   durée : {format_duration(v.duration_s)}")
+            if claims.get("exp"):
+                remaining = claims["exp"] - time.time()
+                log(f"   lien signé valable encore {format_duration(max(remaining, 0))} (vidéo {claims.get('sub', '?')})")
+            try:
+                formats = list_formats(v)
+                audio_only = [f for f in formats if f.get("vcodec") == "none"]
+                log(f"   {len(formats)} format(s), dont {len(audio_only)} audio seul : "
+                    + ", ".join(str(f["format_id"]) for f in formats[:12]))
+                if any(f.get("has_drm") for f in formats):
+                    log("   ⚠️ DRM détecté : l'audio ne pourra pas être récupéré.")
+            except Exception as exc:
+                log(f"   ⚠️ yt-dlp ne lit pas ce flux : {exc}")
+        if res.videos and not args.sans_audio:
+            probe = Lesson(index=1, lesson_id="sonde", url=args.url, title=res.title or "sonde",
+                           module_index=0, module_id="", module_title="", lesson_index=0, videos=res.videos)
+            fetch_audio(probe, root / "sonde")
+            if probe.audio_files:
+                log(f"\n✅ Audio récupéré : {root / 'sonde' / probe.audio_files[0]}")
+        log(f"\nDiagnostic (jetons masqués) : {root / 'diagnostic'}")
+
+
+# --- transcription --------------------------------------------------------------
+
+def cmd_transcrire(args) -> None:
+    from .transcribe import build_prompt, load_model, transcribe_file, write_outputs
+
+    root: Path = args.sortie
+    inv_path = root / "inventaire.json"
+    if not inv_path.is_file():
+        raise SystemExit(f"{inv_path} introuvable : lancez d'abord la commande « audio ».")
+    inv = Inventory.load(inv_path)
+    def transcribed(l: Lesson) -> bool:
+        return bool(l.transcript_files) and all((root / t).is_file() for t in l.transcript_files)
+
+    todo = [l for l in inv.lessons if l.audio_files and (args.forcer or not transcribed(l))]
+    if not todo:
+        log("Toutes les transcriptions sont déjà faites.")
+        return
+    total_audio = sum(l.video_duration_s or 0 for l in todo)
+    log(f"Chargement du modèle Whisper « {args.modele} » (premier lancement : téléchargement de 1,5 à 3 Go)...")
+    model, device = load_model(args.modele, args.appareil)
+    log(f"Modèle prêt sur {'GPU' if device == 'cuda' else 'processeur (CPU)'}. "
+        f"{len(todo)} leçon(s), {format_duration(total_audio)} d'audio à transcrire.")
+    extra = ""
+    if args.vocabulaire:
+        extra = Path(args.vocabulaire).read_text(encoding="utf-8").replace("\n", ", ")
+    for n, lesson in enumerate(todo, start=1):
+        log(f"[{n}/{len(todo)}] {lesson.stem}")
+        outputs = []
+        for k, audio_rel in enumerate(lesson.audio_files, start=1):
+            audio = root / audio_rel
+            if not audio.is_file():
+                log(f"    ⚠️ fichier audio absent : {audio_rel}")
+                continue
+            prompt = build_prompt(inv.course_title, lesson.module_title, lesson.title, extra)
+            segments, duration = transcribe_file(model, audio, prompt, log=log, beam_size=args.beam)
+            suffix = f" (partie {k})" if len(lesson.audio_files) > 1 else ""
+            files = write_outputs(segments, root / "transcriptions" / f"{lesson.stem}{suffix}",
+                                  lesson.title, lesson.url, duration)
+            outputs += [rel(p, root) for p in files]
+        if outputs:
+            lesson.transcript_files = outputs
+        inv.save(inv_path)
+    write_reports(inv, root, args)
+    log(f"Transcriptions dans « {root / 'transcriptions'} », document complet : {root / 'formation_complete.md'}")
+
+
+# --- planning / rapports -------------------------------------------------------
+
+def write_reports(inv: Inventory, root: Path, args) -> dict:
+    from .report import write_csv, write_full_document, write_summary
+
+    factor = getattr(args, "facteur_video", DEFAULT_VIDEO_FACTOR)
+    minutes = getattr(args, "minutes", 60)
+    t = write_summary(inv, root / "resume.md", factor, minutes)
+    write_csv(inv, root / "inventaire.csv", factor)
+    write_full_document(inv, root, root / "formation_complete.md")
+    return t
+
+
+def cmd_planning(args) -> None:
+    from .planning import build_sessions, parse_days, write_ics, write_json, write_markdown
+
+    root: Path = args.sortie
+    inv_path = root / "inventaire.json"
+    if not inv_path.is_file():
+        raise SystemExit(f"{inv_path} introuvable : lancez d'abord la commande « inventaire ».")
+    inv = Inventory.load(inv_path)
+    start = date.fromisoformat(args.debut) if args.debut else date.today() + timedelta(days=1)
+    sessions = build_sessions(inv, start, args.heure, args.minutes, parse_days(args.jours),
+                              args.facteur_video, args.a_partir_de)
+    title = inv.course_title or "Formation"
+    write_markdown(sessions, root / "planning.md", title, args.minutes)
+    write_json(sessions, root / "planning.json")
+    write_ics(sessions, root / "planning.ics", title, args.fuseau, args.minutes, inv.course_url)
+    if sessions:
+        log(f"Planning : {plural(len(sessions), 'séance')} du {sessions[0].day} au {sessions[-1].day} "
+            f"({format_minutes(sum(s.minutes for s in sessions))} d'étude estimée).")
+        log(f"→ {root / 'planning.md'} et {root / 'planning.ics'} (à importer dans votre agenda).")
+
+
+def print_totals(t: dict, root: Path) -> None:
+    log("")
+    log("=" * 60)
+    log(f"Vidéo : {format_duration(t['video_s'])}"
+        + (f" ({t['videos_sans_duree']} vidéo(s) sans durée)" if t["videos_sans_duree"] else ""))
+    log(f"Lecture des articles : {format_minutes(t['lecture_min'])} · Quiz : {format_minutes(t['quiz_min'])}"
+        f" · Fiches PDF : {t['pages_pdf']} pages")
+    log(f"Temps d'étude total estimé : {format_minutes(t['etude_min'])}")
+    log(f"Détail : {root / 'resume.md'}")
+    log("=" * 60)
+
+
+# --- arguments ------------------------------------------------------------------
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="python -m podia_formation",
+        description="Inventaire, audio, transcription et planning d'une formation Podia à laquelle vous êtes inscrit.")
+    p.add_argument("--version", action="version", version=__version__)
+    sub = p.add_subparsers(dest="commande", required=True)
+
+    def common(sp, url=True):
+        if url:
+            sp.add_argument("url", help="adresse de la formation ou d'une leçon (…/p/courses/…)")
+        sp.add_argument("--sortie", type=Path, default=DEFAULT_OUT, help="dossier de sortie (défaut : ./formation)")
+        sp.add_argument("--forcer", action="store_true", help="refaire même ce qui est déjà fait")
+
+    def browser(sp):
+        sp.add_argument("--navigateur", default="auto", choices=["auto", "chromium", "chrome", "msedge", "edge"],
+                        help="navigateur à piloter (défaut : auto)")
+        sp.add_argument("--headless", action="store_true", help="navigateur invisible (une fois connecté)")
+        sp.add_argument("--profil", type=Path, default=None,
+                        help="dossier du profil navigateur (défaut : ~/.podia_formation/navigateur)")
+        sp.add_argument("--chemin-navigateur", default=None, help="exécutable Chromium/Chrome à utiliser")
+        sp.add_argument("--diagnostic", action="store_true",
+                        help="enregistre la page et les requêtes des 3 premières leçons visitées (dépannage)")
+
+    def whisper(sp):
+        sp.add_argument("--modele", default="large-v3",
+                        help="modèle Whisper : large-v3 (meilleure qualité, défaut), large-v3-turbo (plus rapide), medium, small")
+        sp.add_argument("--appareil", default="auto", choices=["auto", "cpu", "cuda"], help="calcul sur CPU ou GPU NVIDIA")
+        sp.add_argument("--beam", type=int, default=5, help="largeur de recherche (5 par défaut ; plus = plus lent)")
+        sp.add_argument("--vocabulaire", default=None, help="fichier texte de termes à reconnaître (un par ligne)")
+
+    def planning(sp):
+        sp.add_argument("--debut", default=None, help="date de la première séance AAAA-MM-JJ (défaut : demain)")
+        sp.add_argument("--heure", default="20:00", help="heure de début des séances (défaut : 20:00)")
+        sp.add_argument("--minutes", type=float, default=60, help="durée minimale d'une séance (défaut : 60)")
+        sp.add_argument("--jours", default="tous", help="tous, semaine, ou liste : lun,mar,mer,jeu,ven,sam,dim")
+        sp.add_argument("--fuseau", default="Europe/Paris", help="fuseau horaire (défaut : Europe/Paris)")
+        sp.add_argument("--facteur-video", type=float, default=DEFAULT_VIDEO_FACTOR,
+                        help="temps d'étude par minute de vidéo (défaut : 1.25 pour pauses et notes)")
+        sp.add_argument("--a-partir-de", type=int, default=1, help="n° de la première leçon à planifier (défaut : 1)")
+
+    sp = sub.add_parser("sonde", help="vérifie sur UNE leçon que tout fonctionne (à lancer en premier)")
+    common(sp); browser(sp)
+    sp.add_argument("--sans-audio", action="store_true", help="ne pas télécharger l'audio de la leçon testée")
+    sp = sub.add_parser("inventaire", help="liste les leçons, mesure les vidéos et les textes (sans rien télécharger)")
+    common(sp); browser(sp); planning(sp)
+    sp = sub.add_parser("audio", help="inventaire + téléchargement de l'audio des vidéos")
+    common(sp); browser(sp); planning(sp)
+    sp = sub.add_parser("transcrire", help="transcrit en texte les audios déjà téléchargés")
+    common(sp, url=False); whisper(sp); planning(sp)
+    sp = sub.add_parser("planning", help="génère le planning quotidien et le fichier agenda (.ics)")
+    common(sp, url=False); planning(sp)
+    sp = sub.add_parser("tout", help="inventaire + audio + transcription + planning")
+    common(sp); browser(sp); whisper(sp); planning(sp)
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except Exception:
+            pass
+    args = build_parser().parse_args(argv)
+    try:
+        if args.commande in ("inventaire", "audio", "tout"):
+            inv = crawl(args, want_audio=args.commande != "inventaire")
+            t = write_reports(inv, args.sortie, args)
+            print_totals(t, args.sortie)
+            if args.commande == "tout":
+                cmd_transcrire(args)
+            cmd_planning(args)
+        elif args.commande == "sonde":
+            cmd_sonde(args)
+        elif args.commande == "transcrire":
+            cmd_transcrire(args)
+        elif args.commande == "planning":
+            cmd_planning(args)
+    except KeyboardInterrupt:
+        log("\nInterrompu. Relancez la même commande : le travail déjà fait est conservé.")
+        return 130
+    except (RuntimeError, ValueError, OSError) as exc:     # NotLoggedIn est une RuntimeError
+        log(f"\n❌ {exc}")
+        return 1
+    return 0

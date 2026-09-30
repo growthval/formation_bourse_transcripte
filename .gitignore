@@ -1,0 +1,10 @@
+# Contenus de la formation (usage personnel, ne pas publier)
+formation/
+diagnostic/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
