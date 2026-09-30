@@ -68,7 +68,22 @@ Adresse de la formation (ou de n'importe quelle leçon) :
 https://zonebourse.podia.com/p/courses/investir-en-bourse
 ```
 
-### Étape 1 : la sonde (2 minutes, à faire en premier)
+### Étape 0 : se connecter (une seule fois)
+
+L'outil utilise son propre navigateur, séparé de votre Chrome ou Edge habituel : il faut donc vous y connecter une fois.
+
+```bat
+formation connexion "https://zonebourse.podia.com/p/courses/investir-en-bourse/341465-module-2-se-lancer/973576-se-lancer"
+```
+
+- Une fenêtre Edge s'ouvre sur la page de connexion de Podia.
+- **Connectez-vous** : e-mail, mot de passe, puis le code reçu par e-mail si demandé. Cochez « faire confiance à cet appareil ».
+- **Revenez dans la fenêtre noire et appuyez sur Entrée.**
+- Le message **`OK : vous êtes connecté`** confirme la connexion. Elle est gardée pour toutes les commandes suivantes.
+
+Pour utiliser Chrome au lieu d'Edge, ajoutez `--navigateur chrome` à toutes les commandes.
+
+### Étape 1 : la sonde (2 minutes)
 
 Elle vérifie sur **une seule leçon** que tout fonctionne avec votre compte :
 
@@ -76,9 +91,9 @@ Elle vérifie sur **une seule leçon** que tout fonctionne avec votre compte :
 formation sonde "https://zonebourse.podia.com/p/courses/investir-en-bourse/341465-module-2-se-lancer/973576-se-lancer"
 ```
 
-- Une fenêtre Edge s'ouvre : **connectez-vous à Podia** (e-mail, mot de passe, et code reçu par e-mail si demandé ; cochez « faire confiance à cet appareil »). Ne fermez pas cette fenêtre.
-- L'outil reprend tout seul, analyse la leçon et récupère son audio dans `formation\sonde\audio\`.
-- Tout va bien si vous voyez **`OK : Audio récupéré`**. Sinon, voyez la section **Dépannage**.
+- L'outil analyse la leçon et récupère son audio dans `formation\sonde\audio\`.
+- Si la connexion n'est plus valable, il rouvre la page de connexion et vous demande de vous connecter, puis d'appuyer sur Entrée.
+- Tout va bien si vous voyez **`OK : Audio récupéré`**. Sinon, envoyez le texte affiché et la capture `formation\diagnostic\sonde.png`.
 
 ### Étape 2 : inventaire + audio de toute la formation
 
@@ -173,7 +188,7 @@ Le planning fait **autant de séances que possible en gardant chacune à au moin
 
 | Symptôme | Solution |
 |---|---|
-| « Session absente ou expirée » / « La session Podia a expiré » | Relancez la même commande **sans** `--headless` et reconnectez-vous dans la fenêtre. Le travail déjà fait est gardé. |
+| « Vous n'êtes pas connecté à Podia » | Lancez `formation connexion "<adresse>"`, connectez-vous dans la fenêtre, puis appuyez sur Entrée. Le travail déjà fait est gardé. |
 | « Aucune leçon trouvée » ou « lecteur vidéo repéré mais flux non capté » | Relancez avec `--diagnostic`. Le dossier `formation\diagnostic\` contient la page, les requêtes réseau et une capture d'écran. E-mail, nom et liens signés y sont masqués, mais la capture montre la page telle quelle : vérifiez-la avant de l'envoyer. |
 | « leçon inaccessible (verrouillée ?) » | La leçon n'est pas encore ouverte (déblocage progressif) : elle sera reprise à un prochain lancement. |
 | « Impossible de lancer un navigateur » | `formation audio … --navigateur chrome`, ou `.venv\Scripts\python -m playwright install chromium`. |

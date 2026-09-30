@@ -88,6 +88,23 @@ JS_LOGIN_FORM = r"""
 () => !!document.querySelector('input[type=password], input[autocomplete="one-time-code"], input[name*="code" i][inputmode=numeric]')
 """
 
+# Signes d'une page vue sans être connecté (le sommaire de Zonebourse est public : il ne prouve rien).
+JS_AUTH_STATE = r"""
+() => {
+  const txt = (e) => ((e.getAttribute('aria-label') || e.innerText || e.textContent || '') + '').replace(/\s+/g, ' ').trim();
+  const els = [...document.querySelectorAll('a, button, [role=button]')];
+  const LOGIN = /^(se connecter|connexion|connectez-vous|me connecter|s'identifier|log ?in|sign ?in)$/i;
+  const LOGOUT = /(déconnexion|se déconnecter|log ?out|sign ?out)/i;
+  const href = (e) => e.getAttribute('href') || '';
+  const loginLink = els.some(e => LOGIN.test(txt(e)) || /\/(login|sign_in|signin)(?:[\/?#]|$)/i.test(href(e)));
+  const logout = els.some(e => LOGOUT.test(txt(e)) || /\/(logout|sign_out|signout)(?:[\/?#]|$)/i.test(href(e)));
+  const password = !!document.querySelector('input[type=password]');
+  const body = document.body ? document.body.innerText.slice(0, 30000) : '';
+  const gate = /(connectez-vous|identifiez-vous|log in|sign in|inscrivez-vous|achetez|acheter)[^.\n]{0,60}(accéder|continuer|voir|regarder|access|continue|view)/i.test(body);
+  return {loginLink, logout, password, gate, textLength: body.length};
+}
+"""
+
 JS_SIDEBAR = "() => {" + _JS_HELPERS + r"""
   const links = curriculumLinks('');
   const root = curriculumRoot(links);
@@ -630,6 +647,30 @@ class Crawler:
             self.page.wait_for_timeout(500)
         return self._lesson_link_count(course) > 0
 
+    def _auth_state(self) -> dict:
+        return self._frame_eval(self.page.main_frame, JS_AUTH_STATE) or {}
+
+    def logged_out(self) -> bool:
+        """La page est-elle vue sans être connecté ? (bouton « Se connecter », formulaire, page verrouillée)."""
+        state = self._auth_state()
+        if any(w in urlparse(self.page.url).path.lower() for w in LOGIN_WORDS) or state.get("password"):
+            return True
+        if state.get("logout"):
+            return False
+        return bool(state.get("loginLink") or state.get("gate"))
+
+    def _wait_stable(self, max_seconds: float = 6.0) -> None:
+        """Attend que le contenu de la page (chargé par JavaScript) ait fini de s'afficher."""
+        deadline = time.monotonic() + max_seconds
+        last, stable = -1, 0
+        while time.monotonic() < deadline:
+            length = (self._auth_state() or {}).get("textLength", 0)
+            stable = stable + 1 if length == last and length > 0 else 0
+            if stable >= 2:
+                return
+            last = length
+            self.page.wait_for_timeout(500)
+
     def _login_form_visible(self) -> bool:
         for frame in self.page.frames:
             if self._frame_eval(frame, JS_LOGIN_FORM):
@@ -644,9 +685,11 @@ class Crawler:
         page = self.page
         page.goto(start_url, wait_until="domcontentloaded", timeout=90_000)
         self._settle()
-        if not self._wait_lessons(course, 10_000):
-            if self._login_form_visible() or not self._find_lesson_page(course):
-                self._login(start_url, course)
+        has_lessons = self._wait_lessons(course, 10_000)
+        if self.logged_out():
+            self._login(start_url, course)
+        elif not has_lessons and not self._find_lesson_page(course):
+            self._login(start_url, course)
         data = page.evaluate(JS_SIDEBAR)
         data["course"] = course
         data["url"] = page.url
@@ -670,56 +713,94 @@ class Crawler:
         return False
 
     def _login(self, start_url: str, course: str) -> None:
+        """Laisse l'utilisateur se connecter dans la fenêtre, puis vérifie la connexion."""
         if self.headless:
-            raise NotLoggedIn("Session absente ou expirée : relancez sans --headless pour vous connecter.")
+            raise NotLoggedIn("Vous n'êtes pas connecté à Podia : relancez sans --headless pour vous connecter.")
+        import threading
+
         page = self.page
         origin = "{0.scheme}://{0.netloc}".format(urlparse(start_url))
-        if not self._login_form_visible():
+        pressed = threading.Event()
+
+        def wait_enter() -> None:
             try:
-                page.goto(origin + "/login", wait_until="domcontentloaded", timeout=60_000)
+                if sys.stdin and sys.stdin.readline():
+                    pressed.set()
             except Exception:
                 pass
-        self.log("\n>>> Connectez-vous à Podia dans la fenêtre du navigateur qui vient de s'ouvrir "
-                 "(e-mail, mot de passe, code reçu par e-mail si demandé).\n"
-                 ">>> L'outil reprend tout seul une fois la connexion faite.\n")
+
+        def open_login_page() -> None:
+            if not self._login_form_visible():
+                try:
+                    page.goto(origin + "/login", wait_until="domcontentloaded", timeout=60_000)
+                except Exception:
+                    pass
+
+        def connected() -> bool:
+            page.goto(start_url, wait_until="domcontentloaded", timeout=90_000)
+            self._settle()
+            if self.logged_out():
+                return False
+            return self._wait_lessons(course, 10_000) or self._find_lesson_page(course)
+
+        open_login_page()
+        self.log("\n>>> Vous n'êtes pas encore connecté.\n"
+                 ">>> Connectez-vous à Podia dans la fenêtre du navigateur (e-mail, mot de passe, puis le code reçu\n"
+                 ">>> par e-mail si demandé ; cochez « faire confiance à cet appareil »). Ne fermez pas cette fenêtre.\n"
+                 ">>> Quand vous êtes connecté, revenez ici et appuyez sur Entrée.\n")
+        threading.Thread(target=wait_enter, daemon=True).start()
         deadline = time.monotonic() + self.login_timeout
         quiet_polls = 0
         while time.monotonic() < deadline:
             try:
-                page.wait_for_timeout(2000)
+                page.wait_for_timeout(1500)
             except Exception as exc:
                 raise NotLoggedIn("La fenêtre du navigateur a été fermée avant la connexion.") from exc
             try:
-                if course in page.url and self._lesson_link_count(course) > 0:
-                    break
-                # Tant qu'un formulaire (e-mail, mot de passe, code) est affiché, on ne touche à rien.
+                if pressed.is_set():
+                    if connected():
+                        break
+                    self.log(">>> La connexion n'est pas encore détectée : terminez-la dans la fenêtre du navigateur,"
+                             " puis appuyez de nouveau sur Entrée.")
+                    pressed.clear()
+                    threading.Thread(target=wait_enter, daemon=True).start()
+                    open_login_page()
+                    continue
+                # Détection automatique : plus de formulaire de connexion pendant quelques secondes.
                 quiet_polls = 0 if self._login_form_visible() else quiet_polls + 1
-                if quiet_polls >= 2:
-                    page.goto(start_url, wait_until="domcontentloaded", timeout=90_000)
-                    self._settle()
-                    if self._wait_lessons(course, 10_000) or self._find_lesson_page(course):
+                if quiet_polls >= 3:
+                    if connected():
                         break
                     quiet_polls = 0
+                    open_login_page()
             except NotLoggedIn:
                 raise
             except Exception:
                 continue
         else:
             raise NotLoggedIn("Connexion non détectée dans le délai imparti.")
+        self.log(">>> Connexion réussie.\n")
         self._settle()
 
     # -- visite d'une leçon --
-    def visit(self, url: str, capture_video: bool = True) -> VisitResult:
+    def visit(self, url: str, capture_video: bool = True, _retry: bool = False) -> VisitResult:
         page = self.page
         self._media_requests.clear()
         self._all_urls.clear()
         page.goto(url, wait_until="domcontentloaded", timeout=90_000)
         self._settle()
+        self._wait_stable()
         wanted = LESSON_URL_RE.search(urlparse(url).path)
         landed = LESSON_URL_RE.search(urlparse(page.url).path)
-        if wanted and (not landed or landed.group("lesson") != wanted.group("lesson")):
-            if self._login_form_visible():
-                raise NotLoggedIn("La session Podia a expiré : relancez la commande pour vous reconnecter.")
+        moved = wanted and (not landed or landed.group("lesson") != wanted.group("lesson"))
+        if self.logged_out():
+            # Session absente ou expirée : on laisse l'utilisateur se (re)connecter, puis on recommence.
+            if self.headless or _retry:
+                raise NotLoggedIn("Vous n'êtes pas connecté à Podia (ou la session a expiré) : "
+                                  "relancez la commande sans --headless pour vous connecter.")
+            self._login(url, course_slug_from_url(url))
+            return self.visit(url, capture_video, _retry=True)
+        if moved:
             raise LessonUnavailable(f"leçon inaccessible (verrouillée ou déplacée ?) : redirigé vers {page.url}")
         info = page.evaluate(JS_CONTENT)
         slug = wanted.group("lesson_slug") if wanted else ""

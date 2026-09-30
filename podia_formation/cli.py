@@ -309,6 +309,19 @@ def fetch_audio(lesson: Lesson, root: Path) -> None:
             raise RuntimeError(lesson.error)
 
 
+# --- connexion ---------------------------------------------------------------------
+
+def cmd_connexion(args) -> None:
+    from .crawler import Crawler
+
+    with Crawler(browser=args.navigateur, headless=False, profile=args.profil,
+                 executable=args.chemin_navigateur, log=log) as cr:
+        cr.open_course(args.url)
+        if cr.logged_out():
+            raise RuntimeError("Connexion non confirmée : relancez « formation connexion ».")
+        log("OK : vous êtes connecté. La connexion est gardée pour les prochaines commandes.")
+
+
 # --- sonde (vérification sur une leçon) ------------------------------------------
 
 def cmd_sonde(args) -> None:
@@ -320,19 +333,23 @@ def cmd_sonde(args) -> None:
                  executable=args.chemin_navigateur, log=log) as cr:
         data = cr.open_course(args.url)
         lessons = build_lessons(data["items"], data["course"])
-        log(f"Connexion OK. Barre latérale : {len(lessons)} leçons, "
+        log(f"Accès à la formation OK. Sommaire : {len(lessons)} leçons, "
             f"{len({l.module_id for l in lessons})} modules."
             + (f" Podia indique {data['progress'][1]} éléments." if data.get("progress") else ""))
         for l in lessons[:3]:
             log(f"   ex. M{l.module_index} « {l.module_title} » → {l.title}")
         res = cr.visit(args.url)
         cr.write_diagnostic(root / "diagnostic", "sonde", res)
+        log(f"Page ouverte : {cr.page.url}")
         words = count_words(clean_lesson_text(res.markdown, res.title))
         kind = classify_lesson(res.title, words, len(res.videos), res.radio_groups, res.checkboxes,
                                res.quiz_words, len(res.files))
         log(f"\nLeçon : {res.title or '?'} → type {kind}, {words} mots, {len(res.files)} fichier(s)")
         if res.player_seen and not res.videos:
             log("ATTENTION : Un lecteur vidéo est présent mais aucun flux n'a été capté : envoyez le dossier diagnostic.")
+        elif not res.videos and words < 20:
+            log("ATTENTION : la page semble vide (ni vidéo ni texte). Envoyez la capture "
+                f"« {root / 'diagnostic' / 'sonde.png'} » pour analyse.")
         for v in res.videos:
             token = token_in(v.url)
             claims = jwt_claims(token) if token else {}
@@ -669,6 +686,8 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--a-partir-de", type=arg_positive_int, default=None,
                         help="n° de la première leçon à planifier (défaut : 1)")
 
+    sp = sub.add_parser("connexion", help="ouvre le navigateur pour vous connecter à Podia (une seule fois)")
+    common(sp); browser(sp)
     sp = sub.add_parser("sonde", help="vérifie sur UNE leçon que tout fonctionne (à lancer en premier)")
     common(sp); browser(sp)
     sp.add_argument("--sans-audio", action="store_true", help="ne pas télécharger l'audio de la leçon testée")
@@ -731,6 +750,8 @@ def run(args) -> int:
                 log(f"ATTENTION : planning non généré : {exc}")
         if args.commande == "tout":
             cmd_transcrire(args)
+    elif args.commande == "connexion":
+        cmd_connexion(args)
     elif args.commande == "sonde":
         cmd_sonde(args)
     elif args.commande == "transcrire":

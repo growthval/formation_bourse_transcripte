@@ -179,11 +179,32 @@ def test_session_expiry_and_locked_lesson(fresh_site, tmp_path, capsys):
     site.expire_after = 3                      # la page de départ + 2 leçons, puis la session expire
     site.auto_login = False
     code = cli.main(["inventaire", site.lesson_url("1001"), *common_args(tmp_path, profile)])
-    assert code == 1 and "session Podia a expiré" in capsys.readouterr().out
+    assert code == 1 and "la session a expiré" in capsys.readouterr().out
     lessons = {l["lesson_id"]: l for l in json.loads((out / "inventaire.json").read_text(encoding="utf-8"))["lessons"]}
     assert lessons["1001"]["visited"] and lessons["1001"]["kind"] == "video"
     assert not lessons["1002"]["visited"] and "inaccessible" in lessons["1002"]["error"]
     assert not lessons["1004"]["visited"]      # pas marquée « vide » : elle sera visitée au prochain lancement
+
+
+def test_public_curriculum_is_not_mistaken_for_a_login(fresh_site, tmp_path, monkeypatch):
+    """Sommaire visible sans connexion (cas Zonebourse) : l'outil doit demander la connexion, pas conclure « OK »."""
+    from podia_formation.crawler import Crawler, NotLoggedIn
+
+    site = fresh_site
+    monkeypatch.setattr(site, "public_preview", True)
+    monkeypatch.setattr(site, "auto_login", False)
+    with Crawler(headless=True, profile=tmp_path / "p1", executable=CHROMIUM, log=lambda m: None) as cr:
+        with pytest.raises(NotLoggedIn):
+            cr.open_course(site.lesson_url("1003"))
+    monkeypatch.setattr(site, "auto_login", True)       # l'utilisateur se connecte dans la fenêtre
+    messages = []
+    with Crawler(headless=True, profile=tmp_path / "p2", executable=CHROMIUM, log=messages.append) as cr:
+        cr.headless = False
+        cr.login_timeout = 60
+        cr.open_course(site.lesson_url("1003"))
+        assert any("Connexion réussie" in m for m in messages)
+        res = cr.visit(site.lesson_url("1003"))
+        assert res.videos and res.title == "Se lancer"
 
 
 def test_headless_without_session_fails_cleanly(fresh_site, tmp_path, capsys, monkeypatch):
@@ -193,7 +214,7 @@ def test_headless_without_session_fails_cleanly(fresh_site, tmp_path, capsys, mo
     code = cli.main(["inventaire", fresh_site.lesson_url("1001"), "--sortie", str(tmp_path / "o"), "--profil",
                      str(tmp_path / "vide"), "--chemin-navigateur", CHROMIUM, "--headless"])
     assert code == 1
-    assert "Session absente" in capsys.readouterr().out
+    assert "pas connecté à Podia" in capsys.readouterr().out
 
 
 def test_invalid_planning_option_is_rejected_before_any_work(tmp_path, capsys):

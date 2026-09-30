@@ -68,6 +68,7 @@ class FakePodia:
         self.expire_after: int | None = None   # nombre de pages de leçon servies avant expiration de la session
         self.locked: set[str] = set()           # leçons verrouillées (redirigées vers l'accueil de la formation)
         self.lesson_pages_served = 0
+        self.public_preview = False     # True : sommaire visible sans connexion (comme Zonebourse)
         self.site = ThreadingHTTPServer(("127.0.0.1", 0), self._site_handler())
         self.cdn = ThreadingHTTPServer(("127.0.0.1", 0), self._cdn_handler())
         self.site_url = f"http://127.0.0.1:{self.site.server_address[1]}"
@@ -147,6 +148,13 @@ class FakePodia:
                 f"<div class='lesson'><h1>{title}</h1><div class='lesson-body'>{body}</div>"
                 f"<nav class='lesson-nav'>{nav}</nav><button>Marquer comme terminé</button></div></body></html>")
 
+    def preview_page(self) -> str:
+        """Leçon vue sans être connecté : le sommaire est public, le contenu verrouillé."""
+        return ("<!doctype html><html><head><meta charset='utf-8'><title>Se lancer | Investir en bourse</title></head>"
+                f"<body><header><a href='/login'>Se connecter</a></header>{self.sidebar()}"
+                "<div class='lesson'><h1>Se lancer</h1><p>Connectez-vous pour accéder à cette leçon.</p></div>"
+                "</body></html>")
+
     def _site_handler(self):
         fake = self
 
@@ -177,6 +185,8 @@ class FakePodia:
                         return self.send(403, b"forbidden")
                     return self.send(200, minimal_pdf(2), "application/pdf")
                 if url.path.startswith(f"/p/courses/{COURSE}"):
+                    if not logged and fake.public_preview:
+                        return self.send(200, fake.preview_page().encode())
                     if not logged:
                         return self.send(302, headers={"Location": f"/login?return_to={quote(self.path)}"})
                     parts = url.path.rstrip("/").split("/")
