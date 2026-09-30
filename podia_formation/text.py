@@ -117,7 +117,7 @@ def clean_lesson_text(text: str, title: str = "") -> str:
 
 def module_label(index: int, title: str) -> str:
     """'Module 2: Se lancer' reste tel quel ; 'Les actions' devient 'Module 3 : Les actions'."""
-    if re.match(r"(?i)module\s*\d+", title or ""):
+    if re.match(r"(?i)modules?\s*\d+", title or ""):         # aussi « Modules 21 : … » (sic)
         return title
     return f"Module {index} : {title}" if title else f"Module {index}"
 

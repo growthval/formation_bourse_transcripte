@@ -480,7 +480,7 @@ def renumber(lessons: list[Lesson]) -> None:
         lesson.module_index = module_order.setdefault(lesson.module_id, len(module_order) + 1)
         counters[lesson.module_id] = counters.get(lesson.module_id, 0) + 1
         lesson.lesson_index = counters[lesson.module_id]
-        m = re.match(r"(?i)\s*module\s*(\d+)", lesson.module_title or "")
+        m = re.match(r"(?i)\s*modules?\s*(\d+)", lesson.module_title or "")
         numbers.setdefault(lesson.module_id, int(m.group(1)) if m else None)
     values = list(numbers.values())
     if values and None not in values and len(set(values)) == len(values):

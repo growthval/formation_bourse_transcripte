@@ -180,6 +180,7 @@ Toutes les commandes peuvent être relancées : ce qui est déjà fait est conse
 - **Articles** : 200 mots par minute.
 - **Quiz** : 1 minute par question (3 minutes au minimum), ou 5 minutes si le nombre de questions n'est pas visible.
 - **Fiches PDF** : 2 minutes par page.
+- **Page presque sans texte** (le plus souvent une image ou une infographie) : 3 minutes.
 - **Vidéo dont la durée n'a pas pu être mesurée** : durée typique des autres vidéos, signalée « (durée estimée) » dans le planning.
 
 Le planning fait **autant de séances que possible en gardant chacune à au moins 1 h**. Il répartit les leçons dans l'ordre, sans les couper, de façon aussi régulière que possible.

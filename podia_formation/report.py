@@ -12,9 +12,9 @@ from .transcribe import vtt_to_text
 from .text import format_duration, format_minutes, module_label, plural
 
 KIND_LABELS = {"video": "Vidéo", "article": "Article", "quiz": "Quiz", "fichier": "Fiche / fichier",
-               "vide": "Vide", "inconnu": "Non visitée"}
+               "vide": "Image ou page courte", "inconnu": "Non visitée"}
 KIND_PLURALS = {"video": ("vidéo", "vidéos"), "article": ("article", "articles"), "quiz": ("quiz", "quiz"),
-                "fichier": ("fiche", "fiches"), "vide": ("page vide", "pages vides"),
+                "fichier": ("fiche", "fiches"), "vide": ("image ou page courte", "images ou pages courtes"),
                 "inconnu": ("non visitée", "non visitées")}
 
 

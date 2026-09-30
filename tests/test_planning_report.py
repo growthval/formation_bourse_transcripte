@@ -175,3 +175,25 @@ def test_inventory_roundtrip_masks_signed_tokens(tmp_path: Path):
     assert back.lessons[0].videos[0].key == "cf:abc"
     assert back.lessons[6].attachments[0].pages == 2
     assert [l.lesson_id for l in back.lessons] == [l.lesson_id for l in inv.lessons]
+
+
+def test_pages_without_text_are_planned_and_module_prefix_not_doubled():
+    inv = Inventory(course_url="https://x/p/courses/c", course_title="Investir en bourse")
+    inv.lessons = [lesson(1, 1, "video", video_min=40), lesson(2, 1, "vide"), lesson(3, 1, "quiz")]
+    sessions = build_sessions(inv, date(2026, 10, 1), target_minutes=60)
+    planned = [l["index"] for s in sessions for l in s.lessons]
+    assert planned == [1, 2, 3]                                   # l'infographie n'est pas oubliée
+    assert inv.lessons[1].study_minutes() == 3.0
+    assert module_label(21, "Modules 21 : Options, Warrants et Turbos") == "Modules 21 : Options, Warrants et Turbos"
+
+
+def test_a_very_long_lesson_is_spread_over_several_days():
+    inv = Inventory(course_url="https://x/p/courses/c", course_title="Investir en bourse")
+    inv.lessons = [lesson(1, 1, "video", video_min=48), lesson(2, 1, "article", reading=25, pages=73),
+                   lesson(3, 1, "quiz"), lesson(4, 2, "video", video_min=50)]
+    sessions = build_sessions(inv, date(2026, 10, 1), target_minutes=60)
+    assert max(s.minutes for s in sessions) < 120                 # pas de soirée de 3 h pour un PDF de 73 pages
+    parts = [l["libelle"] for s in sessions for l in s.lessons if l["index"] == 2]
+    assert len(parts) == 2 and parts[0].endswith("(partie 1/2)") and parts[-1].endswith("(partie 2/2)")
+    assert len([s for s in sessions if any(l["index"] == 2 for l in s.lessons)]) == 2
+    assert round(sum(s.minutes for s in sessions)) == round(sum(l.study_minutes() for l in inv.lessons))

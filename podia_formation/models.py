@@ -18,6 +18,7 @@ DEFAULT_VIDEO_FACTOR = 1.25   # pauses et prise de notes pendant les vidéos
 DEFAULT_QUIZ_MINUTES = 5.0    # quiz dont on ne connaît pas le nombre de questions
 MINUTES_PER_QUESTION = 1.0
 MINUTES_PER_PDF_PAGE = 2.0
+PAGE_VIEW_MINUTES = 3.0       # page presque sans texte : le plus souvent une image ou une infographie
 
 
 @dataclass
@@ -83,6 +84,8 @@ class Lesson:
         minutes += self.reading_min
         minutes += self.quiz_minutes()
         minutes += sum(a.pages for a in self.attachments) * MINUTES_PER_PDF_PAGE
+        if self.kind == "vide":
+            minutes += PAGE_VIEW_MINUTES
         return minutes
 
 

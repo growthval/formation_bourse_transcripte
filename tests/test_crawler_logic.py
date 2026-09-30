@@ -132,6 +132,9 @@ def test_module_numbers_follow_the_course():
         l.module_title = {"1": "Module 2: Se lancer", "2": "Module 7 la diversification", "3": "Module 8 terminologie"}[l.module_id]
     renumber(lessons)
     assert [l.module_index for l in lessons] == [2, 7, 7, 8]
+    lessons[3].module_title = "Modules 23 : Comprendre les indices"   # « Modules » (sic) sur Zonebourse
+    renumber(lessons)
+    assert [l.module_index for l in lessons] == [2, 7, 7, 23]
     lessons[0].module_title = "Bonus"                     # un module sans numéro : numérotation dans l'ordre
     renumber(lessons)
     assert [l.module_index for l in lessons] == [1, 2, 2, 3]

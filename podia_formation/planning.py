@@ -106,14 +106,15 @@ class Session:
 
 
 def lesson_label(lesson: Lesson) -> str:
-    kind = {"video": "vidéo", "article": "article", "quiz": "quiz", "fichier": "fiche"}.get(lesson.kind, lesson.kind)
+    kind = {"video": "vidéo", "article": "article", "quiz": "quiz", "fichier": "fiche",
+            "vide": "image ou page courte"}.get(lesson.kind, lesson.kind)
     return f"M{lesson.module_index} · {lesson.title} ({kind})"
 
 
 def lesson_weights(inv: Inventory, video_factor: float = DEFAULT_VIDEO_FACTOR,
                    from_index: int = 1) -> tuple[list[Lesson], list[float], list[bool]]:
     """Leçons à planifier, minutes d'étude de chacune, et si la durée est estimée."""
-    lessons = [l for l in inv.lessons if l.index >= from_index and (l.kind != "vide" or l.stream_missed)]
+    lessons = [l for l in inv.lessons if l.index >= from_index]   # pages sans texte comprises (infographies)
     known = sorted(l.video_duration_s for l in inv.lessons if l.video_duration_s)
     typical = known[len(known) // 2] if known else 10 * 60      # médiane des vidéos mesurées
     weights, estimated = [], []
@@ -129,7 +130,8 @@ def lesson_weights(inv: Inventory, video_factor: float = DEFAULT_VIDEO_FACTOR,
 
 def count_sessions(inv: Inventory, target_minutes: float = 60, video_factor: float = DEFAULT_VIDEO_FACTOR,
                    from_index: int = 1) -> int:
-    return len(minimum_partition(lesson_weights(inv, video_factor, from_index)[1], target_minutes))
+    return len(build_sessions(inv, date.today(), target_minutes=target_minutes, video_factor=video_factor,
+                              from_index=from_index))
 
 
 def build_sessions(inv: Inventory, start_day: date, start_time: str = "20:00", target_minutes: float = 60,
@@ -137,23 +139,31 @@ def build_sessions(inv: Inventory, start_day: date, start_time: str = "20:00", t
                    from_index: int = 1) -> list[Session]:
     days = days if days is not None else list(range(7))
     lessons, weights, estimated = lesson_weights(inv, video_factor, from_index)
+    # Leçon bien plus longue qu'une séance (ex. un PDF de 70 pages) : répartie sur plusieurs jours.
+    items: list[tuple[int, int, int, float]] = []          # (leçon, partie, nombre de parties, minutes)
+    for i, w in enumerate(weights):
+        parts = max(1, int(w // target_minutes))          # chaque partie dure au moins une séance
+        items += [(i, k, parts, w / parts) for k in range(1, parts + 1)]
     # « 1 h par jour minimum » : chaque séance dure au moins la cible (sauf si tout tient en une seule).
-    groups = minimum_partition(weights, target_minutes)
+    groups = minimum_partition([it[3] for it in items], target_minutes)
     sessions: list[Session] = []
     day = start_day
     for number, group in enumerate(groups, start=1):
         while day.weekday() not in days:
             day += timedelta(days=1)
-        minutes = sum(weights[i] for i in group)
-        sessions.append(Session(
-            number=number, day=day.isoformat(), start=start_time, minutes=round(minutes, 1),
-            lessons=[{
+        entries = []
+        for g in group:
+            i, part, parts, minutes = items[g]
+            suffix = f" (partie {part}/{parts})" if parts > 1 else ""
+            entries.append({
                 "index": lessons[i].index, "titre": lessons[i].title, "module": lessons[i].module_title,
                 "module_index": lessons[i].module_index, "type": lessons[i].kind,
-                "minutes": round(weights[i], 1), "url": lessons[i].url, "estime": estimated[i],
-                "libelle": lesson_label(lessons[i]) + (" (durée estimée)" if estimated[i] else ""),
-            } for i in group],
-        ))
+                "minutes": round(minutes, 1), "url": lessons[i].url, "estime": estimated[i],
+                "partie": f"{part}/{parts}" if parts > 1 else "",
+                "libelle": lesson_label(lessons[i]) + suffix + (" (durée estimée)" if estimated[i] else ""),
+            })
+        sessions.append(Session(number=number, day=day.isoformat(), start=start_time,
+                                minutes=round(sum(items[g][3] for g in group), 1), lessons=entries))
         day += timedelta(days=1)
     return sessions
 
