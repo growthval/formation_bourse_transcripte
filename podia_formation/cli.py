@@ -62,7 +62,8 @@ def audio_done(lesson: Lesson, root: Path) -> bool:
 
 
 def crawl(args, want_audio: bool) -> Inventory:
-    from .crawler import Crawler, build_lessons, classify_lesson, course_title, lesson_from_url, renumber
+    from .crawler import (Crawler, LessonUnavailable, NotLoggedIn, build_lessons, classify_lesson, course_title,
+                          lesson_from_url, renumber)
     root: Path = args.sortie
     root.mkdir(parents=True, exist_ok=True)
     inv_path = root / "inventaire.json"
@@ -95,7 +96,7 @@ def crawl(args, want_audio: bool) -> Inventory:
         while i < len(inv.lessons):
             lesson = inv.lessons[i]
             i += 1
-            needs_visit = (args.forcer or not lesson.visited or lesson.stream_missed
+            needs_visit = (args.forcer or not lesson.visited or (lesson.stream_missed and lesson.retries < 3)
                            or (want_audio and lesson.kind == "video" and not lesson.drm
                                and not audio_done(lesson, root)))
             if not needs_visit:
@@ -112,14 +113,15 @@ def crawl(args, want_audio: bool) -> Inventory:
                     lesson.quiz_questions = res.radio_groups
                     lesson.reading_min = 0.0
                 missed = lesson.kind != "video" and res.player_seen and not lesson.videos
-                lesson.stream_missed = missed          # sera retentée au prochain lancement
+                lesson.stream_missed = missed          # sera retentée au prochain lancement (3 fois au plus)
+                lesson.retries = lesson.retries + 1 if missed else 0
                 if missed:
                     lesson.error = "lecteur vidéo repéré mais flux non capté"
                     if prev_kind == "video":           # garder ce qu'on savait déjà de cette vidéo
                         lesson.kind, lesson.video_duration_s = "video", prev_duration
                 # Diagnostic : demandé (3 premières leçons) ou automatique en cas d'échec (5 au plus).
                 if (args.diagnostic and diag_budget > 0) or (missed and auto_diag > 0):
-                    cr.write_diagnostic(root / "diagnostic", lesson.stem, res)
+                    cr.write_diagnostic(root / "diagnostic", lesson.stem, res, screenshot=args.diagnostic)
                     if missed and not args.diagnostic:
                         auto_diag -= 1
                     else:
@@ -158,6 +160,13 @@ def crawl(args, want_audio: bool) -> Inventory:
             except KeyboardInterrupt:
                 inv.save(inv_path)
                 raise
+            except NotLoggedIn:
+                inv.save(inv_path)
+                raise
+            except LessonUnavailable as exc:
+                lesson.visited = False           # retentée au prochain lancement
+                lesson.error = str(exc)[:300]
+                log(f"    ⚠️ {lesson.error}")
             except Exception as exc:     # une leçon en échec ne bloque pas les autres
                 lesson.error = f"{type(exc).__name__}: {exc}"[:300]
                 log(f"    ⚠️ {lesson.error}")
@@ -166,9 +175,10 @@ def crawl(args, want_audio: bool) -> Inventory:
 
 
 def apply_visit(cr, lesson: Lesson, res, root: Path) -> None:
-    from .crawler import title_is_from_slug
+    from .crawler import LESSON_URL_RE, better_title
 
-    if res.title and (not lesson.title or title_is_from_slug(lesson)):
+    m = LESSON_URL_RE.search(urlparse(lesson.url).path)
+    if m and better_title(lesson.title, res.title, m.group("lesson_slug")):
         lesson.title = res.title
     lesson.error = ""
     text = clean_lesson_text(res.markdown, lesson.title)

@@ -6,7 +6,9 @@ sinon le Chromium du conteneur de développement ; le test est ignoré s'il est 
 
 import json
 import os
+import re
 import shutil
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -36,6 +38,22 @@ def site(tmp_path_factory):
     fake.stop()
 
 
+@pytest.fixture()
+def fresh_site(site):
+    site.manifest_hits.clear()
+    site.expire_after, site.locked, site.lesson_pages_served, site.auto_login = None, set(), 0, True
+    return site
+
+
+@pytest.fixture()
+def cdn_is_cloudflare(site, monkeypatch):
+    """Le faux CDN local est traité comme Cloudflare Stream (chemin principal sur le vrai site)."""
+    from podia_formation import media
+
+    pattern = media.CLOUDFLARE_RE.pattern.replace(r"https?://(?:", r"https?://(?:localhost:\d+|", 1)
+    monkeypatch.setattr(media, "CLOUDFLARE_RE", re.compile(pattern, re.I))
+
+
 def login_profile(profile: Path, site: FakePodia) -> None:
     """Simule la connexion de l'utilisateur (le faux /login pose un cookie persistant)."""
     from podia_formation.crawler import Crawler
@@ -55,31 +73,42 @@ class FakeWhisper:
         return segs, SimpleNamespace(duration=6.0)
 
 
-def test_full_pipeline(site, tmp_path, monkeypatch):
+def common_args(tmp_path, profile):
+    return ["--sortie", str(tmp_path / "sortie"), "--profil", str(profile), "--chemin-navigateur", CHROMIUM,
+            "--headless"]
+
+
+def test_full_pipeline(fresh_site, cdn_is_cloudflare, tmp_path, monkeypatch):
     from podia_formation import cli, transcribe
 
+    site = fresh_site
     profile, out = tmp_path / "profil", tmp_path / "sortie"
     login_profile(profile, site)
-    common = ["--sortie", str(out), "--profil", str(profile), "--chemin-navigateur", CHROMIUM, "--headless"]
+    common = common_args(tmp_path, profile)
 
     # 1) audio (inclut l'inventaire)
     assert cli.main(["audio", site.lesson_url("1003"), *common, "--debut", "2026-10-01"]) == 0
     inv = json.loads((out / "inventaire.json").read_text(encoding="utf-8"))
     lessons = inv["lessons"]
-    assert [l["lesson_id"] for l in lessons] == ["1001", "1002", "1003", "1004", "1005"]
-    assert [l["kind"] for l in lessons] == ["video", "article", "video", "quiz", "article"]
+    assert [l["lesson_id"] for l in lessons] == ["1001", "1002", "1003", "1004", "1005", "1006", "1007"]
+    assert [l["kind"] for l in lessons] == ["video", "article", "video", "quiz", "article", "fichier", "video"]
+    assert lessons[0]["title"] == "Introduction"                      # pas « Reprendre la formation »
     assert lessons[4]["title"] == "Décryptage : bonus caché"          # leçon cachée, titre de la page
+    assert lessons[6]["module_title"] == "Module 3: Les actions"
+    assert inv["course_title"] == "Investir en bourse" and inv["progress"] == [1, 7]
     assert lessons[3]["quiz_questions"] == 4
-    assert lessons[1]["attachments"][0]["pages"] == 2
-    for l in (lessons[0], lessons[2]):
+    assert lessons[1]["attachments"][0]["pages"] == 2 and lessons[5]["attachments"][0]["pages"] == 2
+    for l in (lessons[0], lessons[2], lessons[6]):
         assert 5.5 < l["video_duration_s"] < 6.5
         assert (out / l["audio_files"][0]).stat().st_size > 10_000
         assert l["audio_files"][0].endswith(".m4a")
     assert "eyJ" not in json.dumps(inv).replace("eyJ-jeton-masque", "")  # jetons masqués
-    # Le flux a été rejoué avec un Referer (le faux CDN renvoie 401 sinon) et le lecteur à clic a été déclenché.
-    assert any(jwt("video1003") in h["path"] for h in site.manifest_hits)
-    assert all(h["referer"] for h in site.manifest_hits)
-    assert (out / "textes" / "M01-L02 - Les 10 commandements de l'investisseur.md").is_file()
+    # Flux déduit de l'iframe (sans lecture) et rejoué avec le Referer du site (le faux CDN renvoie 401 sinon).
+    never = jwt("0123456789abcdef0123456789abcdef")
+    assert any(never in h["path"] and h["referer"] == site.site_url + "/" for h in site.manifest_hits)
+    article = (out / "textes" / "M01-L02 - Les 10 commandements de l'investisseur.md").read_text(encoding="utf-8")
+    assert "Deuxième idée : investir tôt." in article and "Conclusion : rester patient." in article
+    assert "- Investir tôt" in article and "Super cours" not in article     # commentaires exclus
     assert (out / "planning.ics").is_file() and (out / "resume.md").is_file()
 
     # 2) relance : rien à refaire (reprise)
@@ -107,31 +136,69 @@ def test_full_pipeline(site, tmp_path, monkeypatch):
     assert again["parametres"]["heure"] == "18:30" and again["seances"][0]["day"] == "2026-10-05"
 
 
+def test_click_to_play_player(fresh_site, tmp_path):
+    """Lecteur qui ne demande le flux qu'au clic sur « Lecture » (preload=none)."""
+    from podia_formation import cli
+
+    site = fresh_site
+    profile = tmp_path / "profil"
+    login_profile(profile, site)
+    assert cli.main(["sonde", site.lesson_url("1003"), *common_args(tmp_path, profile)]) == 0
+    click = jwt("video1003")
+    assert any(click in h["path"] and "/iframe" in (h["referer"] or "") for h in site.manifest_hits)  # requête du lecteur
+    out = tmp_path / "sortie"
+    assert list((out / "sonde" / "audio").glob("*.m4a"))
+    html = (out / "diagnostic" / "sonde.html").read_text(encoding="utf-8")
+    assert "SECRET-CSRF" not in html and "eyJhbGci" not in html
+    assert "eleve@example.com" not in html and "Valentin" not in html        # données personnelles masquées
+
+
+def test_player_that_never_loads_and_inline_pdf_do_not_hang(fresh_site, tmp_path, capsys):
+    from podia_formation import cli
+
+    site = fresh_site
+    profile = tmp_path / "profil"
+    login_profile(profile, site)
+    started = time.monotonic()
+    assert cli.main(["sonde", site.lesson_url("1007"), *common_args(tmp_path, profile), "--sans-audio"]) == 0
+    assert cli.main(["sonde", site.lesson_url("1006"), *common_args(tmp_path, profile), "--sans-audio"]) == 0
+    assert time.monotonic() - started < 150
+    out = capsys.readouterr().out
+    assert "aucun flux n'a été capté" in out            # 1007 : signalé, sans blocage
+    assert "type fichier" in out                        # 1006 : fiche PDF, pas une vidéo
+
+
+def test_session_expiry_and_locked_lesson(fresh_site, tmp_path, capsys):
+    from podia_formation import cli
+
+    site = fresh_site
+    profile, out = tmp_path / "profil", tmp_path / "sortie"
+    login_profile(profile, site)
+    site.locked = {"1002"}
+    site.lesson_pages_served = 0
+    site.expire_after = 3                      # la page de départ + 2 leçons, puis la session expire
+    site.auto_login = False
+    code = cli.main(["inventaire", site.lesson_url("1001"), *common_args(tmp_path, profile)])
+    assert code == 1 and "session Podia a expiré" in capsys.readouterr().out
+    lessons = {l["lesson_id"]: l for l in json.loads((out / "inventaire.json").read_text(encoding="utf-8"))["lessons"]}
+    assert lessons["1001"]["visited"] and lessons["1001"]["kind"] == "video"
+    assert not lessons["1002"]["visited"] and "inaccessible" in lessons["1002"]["error"]
+    assert not lessons["1004"]["visited"]      # pas marquée « vide » : elle sera visitée au prochain lancement
+
+
+def test_headless_without_session_fails_cleanly(fresh_site, tmp_path, capsys, monkeypatch):
+    from podia_formation import cli
+
+    monkeypatch.setattr(fresh_site, "auto_login", False)
+    code = cli.main(["inventaire", fresh_site.lesson_url("1001"), "--sortie", str(tmp_path / "o"), "--profil",
+                     str(tmp_path / "vide"), "--chemin-navigateur", CHROMIUM, "--headless"])
+    assert code == 1
+    assert "Session absente" in capsys.readouterr().out
+
+
 def test_invalid_planning_option_is_rejected_before_any_work(tmp_path, capsys):
     from podia_formation import cli
 
     with pytest.raises(SystemExit):
         cli.main(["tout", "https://x.podia.com/p/courses/c", "--sortie", str(tmp_path), "--heure", "25h"])
     assert "heure invalide" in capsys.readouterr().err
-
-
-def test_sonde(site, tmp_path):
-    from podia_formation import cli
-
-    profile, out = tmp_path / "profil", tmp_path / "sortie"
-    login_profile(profile, site)
-    assert cli.main(["sonde", site.lesson_url("1001"), "--sortie", str(out), "--profil", str(profile),
-                     "--chemin-navigateur", CHROMIUM, "--headless"]) == 0
-    html = (out / "diagnostic" / "sonde.html").read_text(encoding="utf-8")
-    assert "SECRET-CSRF" not in html and "eyJhbGci" not in html
-    assert list((out / "sonde" / "audio").glob("*.m4a"))
-
-
-def test_headless_without_session_fails_cleanly(site, tmp_path, capsys, monkeypatch):
-    from podia_formation import cli
-
-    monkeypatch.setattr(site, "auto_login", False)
-    code = cli.main(["inventaire", site.lesson_url("1001"), "--sortie", str(tmp_path / "o"), "--profil",
-                     str(tmp_path / "vide"), "--chemin-navigateur", CHROMIUM, "--headless"])
-    assert code == 1
-    assert "Session absente" in capsys.readouterr().out

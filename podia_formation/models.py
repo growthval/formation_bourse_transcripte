@@ -59,6 +59,7 @@ class Lesson:
     subtitle_files: list[str] = field(default_factory=list)
     transcript_files: list[str] = field(default_factory=list)
     stream_missed: bool = False    # lecteur vu mais flux non capté : à retenter
+    retries: int = 0               # nombre de visites sans flux capté
     drm: bool = False              # vidéo protégée : ne pas retenter
     error: str = ""
 

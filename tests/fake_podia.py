@@ -19,6 +19,7 @@ COURSE = "demo-bourse"
 MODULES = [
     ("101", "module-1-introduction", "Module 1: Introduction"),
     ("102", "module-2-se-lancer", "Module 2: Se lancer"),
+    ("103", "module-3-les-actions", "Module 3: Les actions"),
 ]
 # (module, id, slug, titre, type, visible dans la barre latérale)
 LESSONS = [
@@ -27,6 +28,8 @@ LESSONS = [
     ("102", "1003", "se-lancer", "Se lancer", "video_click", True),
     ("102", "1004", "je-teste-mes-connaissances", "Je teste mes connaissances sur... Se lancer", "quiz", True),
     ("102", "1005", "decryptage-bonus", "Décryptage : bonus caché", "article", False),
+    ("103", "1006", "fiche-pratique-secteurs", "Fiche Pratique : Quels secteurs ?", "pdf_inline", True),
+    ("103", "1007", "les-actions", "Les actions", "video_never", True),
 ]
 ARTICLE = " ".join(["La diversification réduit le risque d'un portefeuille d'actions."] * 60)
 
@@ -62,6 +65,9 @@ class FakePodia:
         self.hls_dir = hls_dir
         self.manifest_hits: list[dict] = []
         self.auto_login = True     # False : la page de connexion attend un humain (jamais dans les tests)
+        self.expire_after: int | None = None   # nombre de pages de leçon servies avant expiration de la session
+        self.locked: set[str] = set()           # leçons verrouillées (redirigées vers l'accueil de la formation)
+        self.lesson_pages_served = 0
         self.site = ThreadingHTTPServer(("127.0.0.1", 0), self._site_handler())
         self.cdn = ThreadingHTTPServer(("127.0.0.1", 0), self._cdn_handler())
         self.site_url = f"http://127.0.0.1:{self.site.server_address[1]}"
@@ -86,8 +92,8 @@ class FakePodia:
 
     # -- pages du site --
     def sidebar(self) -> str:
-        parts = ['<aside class="course-sidebar"><div class="title">Investir en bourse</div>',
-                 "<p>1 sur 5 terminés (20%)</p>"]
+        parts = ['<aside class="course-sidebar"><h1>Investir en bourse</h1>',
+                 f"<p>1/{sum(1 for l in LESSONS if l[5]) + 1} complété</p>"]
         for mod, mslug, mtitle in MODULES:
             parts.append(f'<section><button aria-expanded="true"><span>{mtitle}</span> ▾</button><ul>')
             for lmod, lid, slug, title, kind, visible in LESSONS:
@@ -104,15 +110,24 @@ class FakePodia:
         _, lid, _, title, kind, _ = LESSONS[idx]
         body = ""
         if kind.startswith("video"):
-            token = jwt(f"video{lid}")
+            token = jwt(f"video{lid}" if kind != "video_never" else "0123456789abcdef0123456789abcdef")
             parent = quote(self.site_url, safe="")
             body = (f'<div class="player"><iframe src="{self.cdn_url}/{token}/iframe?mode={kind}'
                     f'&parentOrigin={parent}" allow="autoplay"></iframe></div>'
                     "<p>Dans ce module, vous allez découvrir pourquoi investir en actions est un excellent "
                     "moyen de faire croître son patrimoine.</p>")
+        elif kind == "article" and lid == "1002":
+            # Texte riche comme l'éditeur de Podia (Trix) : des <div> et des <br>, pas de <p>.
+            body = ('<div class="trix-content"><div>' + ARTICLE + "<br><br>Deuxième idée : investir tôt."
+                    "<ul><li>Investir tôt</li><li>Diversifier</li></ul>Conclusion : rester patient.</div>"
+                    '<div><a href="/content-assets/fiche.pdf">Télécharger la fiche pratique</a></div></div>'
+                    '<section class="comments"><p>Super cours, merci ! (Didier)</p></section>')
         elif kind == "article":
             body = (f"<h2>Premier principe</h2><p>{ARTICLE}</p><ul><li>Investir tôt</li><li>Diversifier</li></ul>"
                     '<p><a href="/content-assets/fiche.pdf">Télécharger la fiche pratique</a></p>')
+        elif kind == "pdf_inline":
+            body = '<p>La fiche :</p><iframe src="/content-assets/fiche.pdf" width="600" height="400"></iframe>'
+
         elif kind == "quiz":
             body = "<form>" + "".join(
                 f'<fieldset><legend>Question {q}</legend>'
@@ -124,10 +139,13 @@ class FakePodia:
             nav += f'<a rel="next" href="{self.lesson_url(LESSONS[idx + 1][1])}">Continuer</a>'
         if idx:
             nav += f'<a rel="prev" href="{self.lesson_url(LESSONS[idx - 1][1])}">Précédent</a>'
+        cta = f'<header><a class="cta" href="{self.lesson_url("1003")}">Reprendre la formation</a></header>'
+        account = ("<script>Podia.Customer = {\"id\": 42, \"email\": \"eleve@example.com\", "
+                   "\"first_name\": \"Valentin\"};</script>")
         return (f"<!doctype html><html><head><meta charset='utf-8'><title>{title} | Investir en bourse</title>"
-                f'<meta name="csrf-token" content="SECRET-CSRF"></head><body>{self.sidebar()}'
-                f"<main><h1>{title}</h1><div class='lesson-content'>{body}</div>"
-                f"<nav class='lesson-nav'>{nav}</nav><button>Marquer comme terminé</button></main></body></html>")
+                f'<meta name="csrf-token" content="SECRET-CSRF">{account}</head><body>{cta}{self.sidebar()}'
+                f"<div class='lesson'><h1>{title}</h1><div class='lesson-body'>{body}</div>"
+                f"<nav class='lesson-nav'>{nav}</nav><button>Marquer comme terminé</button></div></body></html>")
 
     def _site_handler(self):
         fake = self
@@ -165,6 +183,12 @@ class FakePodia:
                     if len(parts) == 4:      # page de la formation -> première leçon
                         return self.send(302, headers={"Location": fake.lesson_url("1001")})
                     lesson_id = parts[-1].split("-")[0]
+                    if lesson_id in fake.locked:
+                        return self.send(302, headers={"Location": f"/p/courses/{COURSE}"})
+                    fake.lesson_pages_served += 1
+                    if fake.expire_after is not None and fake.lesson_pages_served > fake.expire_after:
+                        return self.send(302, headers={"Location": f"/login?return_to={quote(self.path)}",
+                                                       "Set-Cookie": "sess=; path=/; max-age=0"})
                     return self.send(200, fake.lesson_page(lesson_id).encode())
                 if url.path == "/":
                     return self.send(200, b"<html><body>Bibliotheque</body></html>")
@@ -195,10 +219,14 @@ class FakePodia:
                     mode = parse_qs(url.query).get("mode", [""])[0]
                     manifest = f"/{parts[0]}/manifest/video.m3u8?{url.query}"
                     load = ("fetch(M).then(r => r.text()).then(() => fetch(M.replace('video.m3u8', 'stream_audio.m3u8')));")
-                    trigger = (load if mode == "video_auto" else
-                               "HTMLMediaElement.prototype.play = function () { " + load + " return Promise.resolve(); };")
-                    html = (f"<html><body><video id=v width=320 height=180></video><script>const M = {json.dumps(manifest)};"
-                            f"{trigger}</script></body></html>")
+                    # video_click : le flux n'est demandé qu'au clic sur le bouton du lecteur (preload=none).
+                    trigger = {"video_auto": load,
+                               "video_click": "document.addEventListener('DOMContentLoaded', () => "
+                                              "document.getElementById('b').addEventListener('click', () => {" + load + "}));",
+                               }.get(mode, "")
+                    html = (f"<html><body><video id=v width=320 height=180 preload=none></video>"
+                            f"<button id=b aria-label=Play>▶</button>"
+                            f"<script>const M = {json.dumps(manifest)};{trigger}</script></body></html>")
                     return self.send(200, html.encode())
                 if len(parts) == 3 and parts[1] == "manifest":
                     if parts[2].endswith(".m3u8"):

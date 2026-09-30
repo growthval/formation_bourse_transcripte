@@ -86,3 +86,40 @@ def test_pdf_page_count_and_redact():
     text = '<meta name="csrf-token" content="abc123"> src="https://h/eyJhbGciOi.eyJzdWIiOi.c2ln/iframe"'
     out = redact(text)
     assert "abc123" not in out and "eyJzdWIiOi" not in out
+
+
+def test_navigation_links_never_become_lesson_titles():
+    from podia_formation.crawler import LESSON_URL_RE
+
+    items = [
+        link(2, "module-2-se-lancer", 20, "se-lancer", "Continuer"),       # bouton de navigation
+        link(2, "module-2-se-lancer", 20, "se-lancer", "Se lancer"),       # vraie entrée du sommaire
+    ]
+    lessons = build_lessons(items, "investir-en-bourse")
+    assert [l.title for l in lessons] == ["Se lancer"]
+    assert LESSON_URL_RE.search("/p/courses/c/1-m/2-l/completions") is None     # lien « marquer terminé »
+
+
+def test_pick_and_replace_lesson_titles():
+    from podia_formation.crawler import better_title, pick_lesson_title
+
+    # Le h1 de la barre latérale (titre de la formation) ne doit pas l'emporter sur celui de la leçon.
+    assert pick_lesson_title(["Investir en bourse", "Se lancer"], "Se lancer", "se-lancer") == "Se lancer"
+    assert pick_lesson_title(["Investir en bourse"], "", "se-lancer") == ""
+    assert better_title("Decryptage bonus", "Décryptage : bonus caché", "decryptage-bonus")
+    assert not better_title("Les Guides Zonebourse", "Investir en bourse", "les-guides")
+    assert better_title("Continuer", "Les actions", "les-actions")
+
+
+def test_redact_masks_personal_data():
+    html = ('<script>Podia.Customer = {"id": 1, "email": "moi@exemple.fr", "first_name": "Val"};</script>'
+            '<input name="authenticity_token" value="XYZ"> contact: moi@exemple.fr cus_ABC123')
+    out = redact(html)
+    for secret in ("moi@exemple.fr", "Val", "XYZ", "cus_ABC123"):
+        assert secret not in out
+
+
+def test_pdf_page_count_with_compressed_objects():
+    # Pages rangées dans un flux compressé : seul le /Count du dictionnaire /Pages est lisible.
+    data = b"%PDF-1.5 << /Type /Pages /Kids [3 0 R] /Count 5 >> stream x\x9c... endstream"
+    assert pdf_page_count(data) == 5
