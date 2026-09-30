@@ -6,7 +6,9 @@ import csv
 import math
 from pathlib import Path
 
+from .media import audio_duration
 from .models import DEFAULT_VIDEO_FACTOR, Inventory
+from .transcribe import vtt_to_text
 from .text import format_duration, format_minutes, module_label, plural
 
 KIND_LABELS = {"video": "Vidéo", "article": "Article", "quiz": "Quiz", "fichier": "Fiche / fichier",
@@ -108,11 +110,19 @@ def write_full_document(inv: Inventory, root: Path, path: Path) -> None:
                     body = p.read_text(encoding="utf-8").split("\n", 2)
                     text = body[2] if len(body) > 2 and body[0].startswith("# ") else "\n".join(body)
                     lines += [text.strip(), ""]
-            for t in l.transcript_files:
-                p = root / t
-                if p.suffix == ".txt" and p.is_file():
-                    lines += [f"**Transcription de la vidéo ({format_duration(l.video_duration_s)}) :**", "",
-                              p.read_text(encoding="utf-8").strip(), ""]
-            if l.kind == "video" and not l.transcript_files:
+            txts = [root / t for t in l.transcript_files if t.endswith(".txt") and (root / t).is_file()]
+            for k, t in enumerate(txts, start=1):
+                duration = l.video_duration_s
+                if len(txts) > 1 and k - 1 < len(l.audio_files):
+                    duration = audio_duration(root / l.audio_files[k - 1])
+                label = f"Transcription de la vidéo {k}/{len(txts)}" if len(txts) > 1 else "Transcription de la vidéo"
+                lines += [f"**{label} ({format_duration(duration)}) :**", "", t.read_text(encoding="utf-8").strip(), ""]
+            if not txts and l.subtitle_files:
+                # Pas encore de transcription Whisper : sous-titres fournis par la plateforme, s'il y en a.
+                subs = sorted(l.subtitle_files, key=lambda f: (".fr" not in f, f))
+                sub = root / subs[0]
+                if sub.is_file():
+                    lines += ["**Sous-titres fournis par la formation :**", "", vtt_to_text(sub), ""]
+            elif l.kind == "video" and not txts:
                 lines += ["_(transcription pas encore disponible)_", ""]
     path.write_text("\n".join(lines), encoding="utf-8")

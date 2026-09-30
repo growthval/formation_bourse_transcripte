@@ -88,7 +88,7 @@ def test_full_pipeline(site, tmp_path, monkeypatch):
     assert len(site.manifest_hits) == hits
 
     # 3) transcription (Whisper simulé)
-    monkeypatch.setattr(transcribe, "load_model", lambda name, device: (FakeWhisper(), "cpu"))
+    monkeypatch.setattr(transcribe, "load_model", lambda *a, **k: (FakeWhisper(), "cpu"))
     assert cli.main(["transcrire", "--sortie", str(out)]) == 0
     txt = out / "transcriptions" / "M02-L01 - Se lancer.txt"
     assert txt.read_text(encoding="utf-8").strip() == "Bienvenue dans ce module. Parlons des actions."

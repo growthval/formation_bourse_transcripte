@@ -88,8 +88,9 @@ def crawl(args, want_audio: bool) -> Inventory:
         while i < len(inv.lessons):
             lesson = inv.lessons[i]
             i += 1
-            needs_visit = args.forcer or not lesson.visited or (want_audio and lesson.kind == "video"
-                                                                and not audio_done(lesson, root))
+            needs_visit = (args.forcer or not lesson.visited or lesson.stream_missed
+                           or (want_audio and lesson.kind == "video" and not lesson.drm
+                               and not audio_done(lesson, root)))
             if not needs_visit:
                 continue
             log(f"[{lesson.index}/{len(inv.lessons)}] M{lesson.module_index} · {lesson.title}")
@@ -103,6 +104,7 @@ def crawl(args, want_audio: bool) -> Inventory:
                     lesson.quiz_questions = res.radio_groups
                     lesson.reading_min = 0.0
                 missed = lesson.kind != "video" and res.player_seen and not lesson.videos
+                lesson.stream_missed = missed          # sera retentée au prochain lancement
                 if missed:
                     lesson.error = "lecteur vidéo repéré mais flux non capté"
                 # Diagnostic : demandé (3 premières leçons) ou automatique en cas d'échec (5 au plus).
@@ -119,7 +121,13 @@ def crawl(args, want_audio: bool) -> Inventory:
                 if lesson.word_count and lesson.kind != "video":
                     summary.append(f"{lesson.word_count} mots")
                 log("    → " + ", ".join(summary))
-                if want_audio and lesson.kind == "video":
+                # Leçon suivante non listée (module replié dans la barre latérale, par exemple).
+                nxt = lesson_from_url(res.next_url, lesson.module_title) if res.next_url else None
+                if nxt and all(l.lesson_id != nxt.lesson_id for l in inv.lessons):
+                    log(f"    + leçon découverte via « Continuer » : {nxt.url}")
+                    inv.lessons.insert(i, nxt)
+                    renumber(inv.lessons)
+                if want_audio and lesson.kind == "video" and (not lesson.drm or args.forcer):
                     try:
                         fetch_audio(lesson, root)
                     except Exception as exc:
@@ -128,13 +136,11 @@ def crawl(args, want_audio: bool) -> Inventory:
                         fresh_res = cr.visit(lesson.url)
                         if fresh_res.videos:
                             lesson.videos = fresh_res.videos
-                        fetch_audio(lesson, root)
-                # Leçon suivante non listée (module replié dans la barre latérale, par exemple).
-                nxt = lesson_from_url(res.next_url, lesson.module_title) if res.next_url else None
-                if nxt and all(l.lesson_id != nxt.lesson_id for l in inv.lessons):
-                    log(f"    + leçon découverte via « Continuer » : {nxt.url}")
-                    inv.lessons.insert(i, nxt)
-                    renumber(inv.lessons)
+                        try:
+                            fetch_audio(lesson, root)
+                        except Exception as exc2:
+                            lesson.error = f"audio : {exc2}"[:300]
+                            log(f"    ⚠️ {lesson.error}")
                 time.sleep(1.0)      # rythme de navigation raisonnable
             except KeyboardInterrupt:
                 inv.save(inv_path)
@@ -183,17 +189,26 @@ def apply_visit(cr, lesson: Lesson, res, root: Path) -> None:
 
 
 def fetch_audio(lesson: Lesson, root: Path) -> None:
-    from .media import DrmProtected, audio_duration, download_audio
+    """Audio de chaque vidéo de la leçon ; lève une erreur si aucune partie n'a pu être récupérée."""
+    from .media import DrmProtected, audio_duration, download_audio, with_ext
 
-    files, subtitles, durations = [], [], []
+    files, subtitles, durations, errors = [], [], [], []
+    drm = 0
     for n, source in enumerate(lesson.videos, start=1):
         suffix = f" (partie {n})" if len(lesson.videos) > 1 else ""
         dest = root / "audio" / f"{lesson.stem}{suffix}"
+        existing = with_ext(dest, ".m4a")
+        if existing.is_file() and existing.stat().st_size > 0 and rel(existing, root) in lesson.audio_files:
+            files.append(rel(existing, root))       # partie déjà récupérée lors d'un essai précédent
+            continue
         try:
             path, subs = download_audio(source, dest, root / "sous-titres" / f"{lesson.stem}{suffix}", log=log)
         except DrmProtected:
-            lesson.error = "vidéo protégée par DRM : audio non récupérable"
-            log(f"    ⚠️ {lesson.error}")
+            drm += 1
+            errors.append(f"partie {n} : vidéo protégée par DRM")
+            continue
+        except Exception as exc:
+            errors.append(f"partie {n} : {exc}")
             continue
         files.append(rel(path, root))
         subtitles += [rel(p, root) for p in subs]
@@ -203,11 +218,17 @@ def fetch_audio(lesson: Lesson, root: Path) -> None:
             if not source.duration_s:
                 source.duration_s = d
         log(f"    ♪ audio : {path.name}" + (f" (+ {len(subs)} fichier(s) de sous-titres)" if subs else ""))
-    if files:
-        lesson.audio_files = files
+    lesson.audio_files = files
+    if subtitles:
         lesson.subtitle_files = subtitles
     if durations and not lesson.video_duration_s:
         lesson.video_duration_s = sum(durations)
+    lesson.drm = bool(drm) and drm == len(lesson.videos)
+    if errors:
+        lesson.error = "; ".join(errors)[:300]
+        log(f"    ⚠️ {lesson.error}")
+        if not lesson.drm and len(files) < len(lesson.videos) - drm:
+            raise RuntimeError(lesson.error)
 
 
 # --- sonde (vérification sur une leçon) ------------------------------------------
@@ -263,47 +284,89 @@ def cmd_sonde(args) -> None:
 
 # --- transcription --------------------------------------------------------------
 
+def parse_indices(value: str | None) -> set[int] | None:
+    """« 3,5,10-12 » -> {3, 5, 10, 11, 12}."""
+    if not value:
+        return None
+    out: set[int] = set()
+    for part in value.split(","):
+        part = part.strip()
+        if "-" in part:
+            a, b = part.split("-", 1)
+            out.update(range(int(a), int(b) + 1))
+        elif part:
+            out.add(int(part))
+    return out
+
+
 def cmd_transcrire(args) -> None:
-    from .transcribe import build_prompt, load_model, transcribe_file, write_outputs
+    from .transcribe import (build_prompt, is_transcribed, load_model, read_terms, token_counter,
+                             transcribe_file, write_outputs)
 
     root: Path = args.sortie
     inv_path = root / "inventaire.json"
     if not inv_path.is_file():
         raise SystemExit(f"{inv_path} introuvable : lancez d'abord la commande « audio ».")
     inv = Inventory.load(inv_path)
-    def transcribed(l: Lesson) -> bool:
-        return bool(l.transcript_files) and all((root / t).is_file() for t in l.transcript_files)
+    user_terms = read_terms(args.vocabulaire) if args.vocabulaire else []     # lu avant le long chargement du modèle
+    only = parse_indices(args.lecons)
 
-    todo = [l for l in inv.lessons if l.audio_files and (args.forcer or not transcribed(l))]
+    def parts(l: Lesson):
+        for k, audio_rel in enumerate(l.audio_files, start=1):
+            suffix = f" (partie {k})" if len(l.audio_files) > 1 else ""
+            yield root / audio_rel, root / "transcriptions" / f"{l.stem}{suffix}"
+
+    todo = [l for l in inv.lessons if l.audio_files and (only is None or l.index in only)
+            and (args.forcer or not all(a.is_file() and is_transcribed(d, a) for a, d in parts(l)))]
     if not todo:
         log("Toutes les transcriptions sont déjà faites.")
+        write_reports(inv, root, args)
         return
     total_audio = sum(l.video_duration_s or 0 for l in todo)
-    log(f"Chargement du modèle Whisper « {args.modele} » (premier lancement : téléchargement de 1,5 à 3 Go)...")
-    model, device = load_model(args.modele, args.appareil)
+    model, device = load_model(args.modele, args.appareil, args.precision, args.threads, log)
+    count = token_counter(model)
     log(f"Modèle prêt sur {'GPU' if device == 'cuda' else 'processeur (CPU)'}. "
         f"{len(todo)} leçon(s), {format_duration(total_audio)} d'audio à transcrire.")
-    extra = ""
-    if args.vocabulaire:
-        extra = Path(args.vocabulaire).read_text(encoding="utf-8").replace("\n", ", ")
+    failures = 0
+    warned = False
     for n, lesson in enumerate(todo, start=1):
         log(f"[{n}/{len(todo)}] {lesson.stem}")
-        outputs = []
-        for k, audio_rel in enumerate(lesson.audio_files, start=1):
-            audio = root / audio_rel
+        prompt, hotwords, dropped = build_prompt(inv.course_title, lesson.module_title, lesson.title,
+                                                 user_terms, count)
+        if dropped and not warned:
+            log(f"    (vocabulaire trop long : {len(dropped)} terme(s) non rappelé(s) à Whisper)")
+            warned = True
+        outputs: list[str] = []
+        for audio, dest in parts(lesson):
             if not audio.is_file():
-                log(f"    ⚠️ fichier audio absent : {audio_rel}")
+                log(f"    ⚠️ fichier audio absent : {rel(audio, root)}")
                 continue
-            prompt = build_prompt(inv.course_title, lesson.module_title, lesson.title, extra)
-            segments, duration = transcribe_file(model, audio, prompt, log=log, beam_size=args.beam)
-            suffix = f" (partie {k})" if len(lesson.audio_files) > 1 else ""
-            files = write_outputs(segments, root / "transcriptions" / f"{lesson.stem}{suffix}",
-                                  lesson.title, lesson.url, duration)
+            if not args.forcer and is_transcribed(dest, audio):
+                outputs += [rel(p, root) for p in (dest.with_name(dest.name + e) for e in (".txt", ".md", ".srt"))]
+                log("    déjà transcrit")
+                continue
+            try:
+                segments, duration = transcribe_file(model, audio, prompt, hotwords, log=log, beam_size=args.beam)
+            except KeyboardInterrupt:
+                raise
+            except Exception as exc:
+                if device == "cuda" and "memory" in str(exc).lower():
+                    log("    ⚠️ mémoire GPU insuffisante : passage sur le processeur.")
+                    model, device = load_model(args.modele, "cpu", "", args.threads, log)
+                    segments, duration = transcribe_file(model, audio, prompt, hotwords, log=log, beam_size=args.beam)
+                else:
+                    failures += 1
+                    lesson.error = f"transcription : {type(exc).__name__}: {exc}"[:300]
+                    log(f"    ⚠️ {lesson.error} (leçon ignorée ; relancez après correction)")
+                    continue
+            files = write_outputs(segments, dest, lesson.title, lesson.url, duration)
             outputs += [rel(p, root) for p in files]
         if outputs:
             lesson.transcript_files = outputs
         inv.save(inv_path)
     write_reports(inv, root, args)
+    if failures:
+        log(f"⚠️ {failures} partie(s) non transcrite(s) : voir la colonne « erreur » de inventaire.csv.")
     log(f"Transcriptions dans « {root / 'transcriptions'} », document complet : {root / 'formation_complete.md'}")
 
 
@@ -380,10 +443,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     def whisper(sp):
         sp.add_argument("--modele", default="large-v3",
-                        help="modèle Whisper : large-v3 (meilleure qualité, défaut), large-v3-turbo (plus rapide), medium, small")
+                        help="large-v3 (défaut), francais (large-v3 affiné pour le français), "
+                             "large-v3-turbo (3 à 4× plus rapide), medium, small, ou un dossier de modèle")
         sp.add_argument("--appareil", default="auto", choices=["auto", "cpu", "cuda"], help="calcul sur CPU ou GPU NVIDIA")
+        sp.add_argument("--precision", default="", choices=["", "int8", "float32", "float16", "int8_float16"],
+                        help="précision des calculs (défaut : int8 sur processeur ; float32 = un peu plus fidèle, 2× plus lent)")
+        sp.add_argument("--threads", type=int, default=0, help="cœurs processeur à utiliser (défaut : tous les cœurs physiques)")
         sp.add_argument("--beam", type=int, default=5, help="largeur de recherche (5 par défaut ; plus = plus lent)")
         sp.add_argument("--vocabulaire", default=None, help="fichier texte de termes à reconnaître (un par ligne)")
+        sp.add_argument("--lecons", default=None, help="seulement ces leçons (n° de l'inventaire), ex. « 2,5,10-12 »")
 
     def planning(sp):
         sp.add_argument("--debut", default=None, help="date de la première séance AAAA-MM-JJ (défaut : demain)")
@@ -423,9 +491,9 @@ def main(argv: list[str] | None = None) -> int:
             inv = crawl(args, want_audio=args.commande != "inventaire")
             t = write_reports(inv, args.sortie, args)
             print_totals(t, args.sortie)
+            cmd_planning(args)          # avant la transcription : le planning ne dépend que de l'inventaire
             if args.commande == "tout":
                 cmd_transcrire(args)
-            cmd_planning(args)
         elif args.commande == "sonde":
             cmd_sonde(args)
         elif args.commande == "transcrire":

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import glob
+import hashlib
 import html as html_lib
 import json
 import re
@@ -14,7 +15,8 @@ from urllib.parse import parse_qs, quote, urljoin, urlparse
 from .models import MediaSource
 
 # Manifestes HLS/DASH (Cloudflare Stream, lecteurs génériques).
-MANIFEST_RE = re.compile(r"(?:/manifest/video\.(?:m3u8|mpd)|\.m3u8|\.mpd)(?:[?#]|$)", re.I)
+MANIFEST_RE = re.compile(r"(?:/manifest/video\.(?:m3u8|mpd)|\.m3u8|\.mpd)$", re.I)   # appliqué au chemin
+WISTIA_MEDIA_RE = re.compile(r"fast\.wistia\.(?:net|com)/embed/medias/([a-z0-9]{10})\b")
 CLOUDFLARE_RE = re.compile(
     r"https?://(?:customer-[a-z0-9]+\.cloudflarestream\.com|(?:iframe\.|watch\.)?videodelivery\.net"
     r"|(?:iframe\.|watch\.)?cloudflarestream\.com)"
@@ -59,8 +61,11 @@ def classify_url(url: str) -> tuple[str, str] | None:
         if vid.startswith("eyJ"):
             vid = jwt_subject(vid) or vid
         return "cloudflare", f"cf:{vid}"
-    if MANIFEST_RE.search(url):
-        parsed = urlparse(url)
+    m = WISTIA_MEDIA_RE.search(url)
+    if m:
+        return "wistia", f"wistia:{m.group(1)}"
+    parsed = urlparse(url)
+    if MANIFEST_RE.search(parsed.path):
         kind = "dash" if ".mpd" in parsed.path.lower() else "hls"
         return kind, f"{kind}:{parsed.netloc}{parsed.path}"
     for kind, pattern in EMBED_PATTERNS:
@@ -75,7 +80,7 @@ def classify_url(url: str) -> tuple[str, str] | None:
 
 
 def is_manifest(url: str) -> bool:
-    return bool(MANIFEST_RE.search(url))
+    return bool(MANIFEST_RE.search(urlparse(url).path))
 
 
 def cloudflare_manifest_from_iframe(url: str, site_origin: str = "", ext: str = "m3u8") -> str | None:
@@ -88,9 +93,10 @@ def cloudflare_manifest_from_iframe(url: str, site_origin: str = "", ext: str = 
     if not m:
         return None
     parsed = urlparse(url)
+    host = re.sub(r"^(?:iframe|watch)\.", "", parsed.netloc, flags=re.I)   # ces hôtes ne servent que le lecteur
     parent = parse_qs(parsed.query).get("parentOrigin", [site_origin])[0]
     query = f"?parentOrigin={quote(parent, safe='')}" if parent else ""
-    return f"{parsed.scheme}://{parsed.netloc}/{m.group('id')}/manifest/video.{ext}{query}"
+    return f"{parsed.scheme}://{host}/{m.group('id')}/manifest/video.{ext}{query}"
 
 
 _BARE_JWT_RE = re.compile(r"eyJ[\w-]{10,}\.eyJ[\w-]{10,}\.[\w-]{20,}")
@@ -131,7 +137,8 @@ def replay_headers(all_headers: dict, url: str, page_url: str) -> dict:
 # --- Durée d'un flux -------------------------------------------------------
 
 _ISO_RE = re.compile(
-    r"P(?:(?P<d>[\d.]+)D)?(?:T(?:(?P<h>[\d.]+)H)?(?:(?P<m>[\d.]+)M)?(?:(?P<s>[\d.]+)S)?)?$"
+    r"P(?:(?P<y>[\d.]+)Y)?(?:(?P<mo>[\d.]+)M)?(?:(?P<w>[\d.]+)W)?(?:(?P<d>[\d.]+)D)?"
+    r"(?:T(?:(?P<h>[\d.]+)H)?(?:(?P<m>[\d.]+)M)?(?:(?P<s>[\d.]+)S)?)?$"
 )
 
 
@@ -139,12 +146,12 @@ def parse_iso8601_duration(value: str) -> float | None:
     m = _ISO_RE.match((value or "").strip())
     if not m or not any(m.groupdict().values()):
         return None
-    d, h, mi, s = (float(m.group(k) or 0) for k in ("d", "h", "m", "s"))
-    return d * 86400 + h * 3600 + mi * 60 + s
+    y, mo, w, d, h, mi, s = (float(m.group(k) or 0) for k in ("y", "mo", "w", "d", "h", "m", "s"))
+    return (y * 365.25 + mo * 30.44 + w * 7 + d) * 86400 + h * 3600 + mi * 60 + s
 
 
 def mpd_duration(text: str) -> float | None:
-    m = re.search(r'mediaPresentationDuration\s*=\s*"([^"]+)"', text or "")
+    m = re.search(r"mediaPresentationDuration\s*=\s*[\"']([^\"']+)[\"']", text or "")
     return parse_iso8601_duration(m.group(1)) if m else None
 
 
@@ -202,34 +209,66 @@ def audio_duration(path: Path) -> float | None:
     return None
 
 
+def _copy_aac(inp, a, out) -> None:
+    o = out.add_stream_from_template(a)
+    for packet in inp.demux(a):
+        if packet.dts is None:
+            continue
+        packet.stream = o
+        out.mux(packet)
+
+
+def _transcode_aac(inp, a, out) -> None:
+    o = out.add_stream("aac", rate=a.codec_context.sample_rate or 44100)
+    o.bit_rate = 128_000
+    for frame in inp.decode(a):
+        frame.pts = None
+        for packet in o.encode(frame):
+            out.mux(packet)
+    for packet in o.encode(None):
+        out.mux(packet)
+
+
 def to_m4a(src: Path, dest: Path) -> Path:
-    """Extrait la piste audio dans un .m4a : copie directe si AAC, sinon réencodage AAC 128 kb/s."""
+    """Extrait la piste audio dans un .m4a : copie directe si AAC, sinon (ou si la copie échoue) réencodage AAC."""
     import av
 
     tmp = dest.with_name(dest.name + ".tmp")
-    with av.open(str(src)) as inp:
-        if not inp.streams.audio:
-            raise RuntimeError("aucune piste audio dans le fichier téléchargé")
-        a = inp.streams.audio[0]
-        with av.open(str(tmp), "w", format="mp4") as out:
-            if a.codec_context.name == "aac":
-                o = out.add_stream_from_template(a)
-                for packet in inp.demux(a):
-                    if packet.dts is None:
+    modes = ["copie", "reencodage"]
+    try:
+        for mode in modes:
+            try:
+                with av.open(str(src)) as inp:
+                    if not inp.streams.audio:
+                        raise RuntimeError("aucune piste audio dans le fichier téléchargé")
+                    a = inp.streams.audio[0]
+                    if mode == "copie" and a.codec_context.name != "aac":
                         continue
-                    packet.stream = o
-                    out.mux(packet)
-            else:
-                o = out.add_stream("aac", rate=a.codec_context.sample_rate or 44100)
-                o.bit_rate = 128_000
-                for frame in inp.decode(a):
-                    frame.pts = None
-                    for packet in o.encode(frame):
-                        out.mux(packet)
-                for packet in o.encode(None):
-                    out.mux(packet)
-    tmp.replace(dest)
+                    with av.open(str(tmp), "w", format="mp4") as out:
+                        (_copy_aac if mode == "copie" else _transcode_aac)(inp, a, out)
+                break
+            except (av.FFmpegError, ValueError):
+                # Horodatages non monotones (discontinuités HLS), etc. : on réencode.
+                tmp.unlink(missing_ok=True)
+                if mode == modes[-1]:
+                    raise
+        tmp.replace(dest)
+    finally:
+        tmp.unlink(missing_ok=True)
     return dest
+
+
+def decoded_seconds(path: Path) -> float | None:
+    """Durée réellement décodable (les trous d'un flux incomplet n'y sont pas comptés)."""
+    try:
+        import av
+        with av.open(str(path)) as c:
+            a = c.streams.audio[0]
+            rate = a.codec_context.sample_rate or 0
+            samples = sum(frame.samples for frame in c.decode(a))
+        return samples / rate if rate else None
+    except Exception:
+        return None
 
 
 # --- Téléchargement de l'audio (yt-dlp) --------------------------------------
@@ -244,17 +283,22 @@ def _ytdlp_url(source: MediaSource) -> str:
     return source.url
 
 
-def download_subtitles(url: str, opts: dict, dest_stem: Path) -> list[Path]:
+def _outtmpl(stem: Path) -> dict:
+    # « % » est un caractère spécial des modèles de nom de yt-dlp (titre « Frais 1%(annuel) »…).
+    return {"default": str(stem).replace("%", "%%") + ".%(ext)s"}
+
+
+def download_subtitles(url: str, opts: dict, dest_stem: Path, ie_key: str | None) -> list[Path]:
     """Sous-titres éventuels du flux (ajoutés par le formateur ou générés par Cloudflare). Sans garantie."""
     from yt_dlp import YoutubeDL
 
     dest_stem.parent.mkdir(parents=True, exist_ok=True)
     sub_opts = {**opts, "skip_download": True, "writesubtitles": True, "subtitleslangs": ["all"],
-                "ignoreerrors": True, "outtmpl": {"default": str(dest_stem) + ".%(ext)s"}}
+                "ignoreerrors": True, "outtmpl": _outtmpl(dest_stem)}
     sub_opts.pop("postprocessors", None)
     try:
         with YoutubeDL(sub_opts) as ydl:
-            info = ydl.extract_info(url, download=True) or {}
+            info = ydl.extract_info(url, download=True, ie_key=ie_key) or {}
     except Exception:
         return []
     paths = []
@@ -265,6 +309,18 @@ def download_subtitles(url: str, opts: dict, dest_stem: Path) -> list[Path]:
     return paths
 
 
+RETRIES = 5
+RETRY_SLEEP_MAX = 10.0
+
+
+def _backoff(n: int) -> float:
+    """Pause avant le n-ième nouvel essai : 1, 2, 4, 8, 10 s…"""
+    return min(2.0 ** n, RETRY_SLEEP_MAX)
+
+
+_LEFTOVER_RE = re.compile(r"\.(?:part|ytdl|tmp)(?:-Frag\d+)?$")
+
+
 def download_audio(source: MediaSource, dest_stem: Path, subs_stem: Path | None = None,
                    log: Callable[[str], None] = print) -> tuple[Path, list[Path]]:
     """Télécharge la piste audio d'une source : renvoie le .m4a et les éventuels sous-titres."""
@@ -272,31 +328,35 @@ def download_audio(source: MediaSource, dest_stem: Path, subs_stem: Path | None 
     from yt_dlp.utils import DownloadError
 
     dest_stem.parent.mkdir(parents=True, exist_ok=True)
-    raw_stem = dest_stem.with_name(dest_stem.name + ".source")
+    # Nom temporaire court : les fragments yt-dlp (« ….part-Frag123 ») dépasseraient vite 260 caractères sous Windows.
+    raw_stem = dest_stem.parent / f".dl-{hashlib.sha1(dest_stem.name.encode()).hexdigest()[:10]}"
     base_opts = {
         # Piste audio seule si le lecteur en propose une, sinon la plus petite vidéo (l'audio en est extrait).
         "format": "ba/b[height<=480]/wa*/w",
-        "outtmpl": {"default": str(raw_stem) + ".%(ext)s"},
+        "outtmpl": _outtmpl(raw_stem),
         "http_headers": dict(source.headers),
         "quiet": True,
         "no_warnings": True,
         "noprogress": True,
         "noplaylist": True,
-        "retries": 10,
-        "fragment_retries": 10,
+        "retries": RETRIES,
+        "fragment_retries": RETRIES,
+        # Un segment manquant ferait un trou dans la transcription : on échoue plutôt que de le sauter.
+        "skip_unavailable_fragments": False,
+        "retry_sleep_functions": {"http": _backoff, "fragment": _backoff},
         "concurrent_fragment_downloads": 4,
         "overwrites": True,
     }
     url = _ytdlp_url(source)
-    attempts = [{}]
-    if source.kind in ("cloudflare", "hls", "dash"):
-        # Rejouer l'URL exacte vue par le navigateur, puis l'extracteur dédié en secours.
-        attempts = [{"force_generic_extractor": True}, {}]
+    # Pour un flux capté : d'abord l'URL exacte vue par le navigateur (extracteur générique),
+    # puis l'extracteur Cloudflare de yt-dlp en secours.
+    attempts: list[str | None] = ["Generic", None] if source.kind in ("cloudflare", "hls", "dash") else [None]
     last_error: Exception | None = None
-    for extra in attempts:
+    for ie_key in attempts:
+        label = "générique" if ie_key else "extracteur dédié"
         try:
-            with YoutubeDL({**base_opts, **extra}) as ydl:
-                info = ydl.extract_info(url, download=True)
+            with YoutubeDL(base_opts) as ydl:
+                info = ydl.extract_info(url, download=True, ie_key=ie_key)
             if not info:
                 raise DownloadError("aucune information renvoyée")
             raw = None
@@ -306,7 +366,7 @@ def download_audio(source: MediaSource, dest_stem: Path, subs_stem: Path | None 
                     raw = path
             if raw is None:
                 found = [c for c in dest_stem.parent.glob(glob.escape(raw_stem.name) + ".*")
-                         if c.suffix not in (".part", ".ytdl", ".tmp")]
+                         if not _LEFTOVER_RE.search(c.name)]
                 raw = found[0] if found else None
             if raw is None:
                 raise DownloadError("fichier audio introuvable après téléchargement")
@@ -316,13 +376,20 @@ def download_audio(source: MediaSource, dest_stem: Path, subs_stem: Path | None 
             except ImportError:
                 final = with_ext(dest_stem, raw.suffix)
                 raw.replace(final)
-            subs = download_subtitles(url, {**base_opts, **extra}, subs_stem) if subs_stem else []
+            expected = source.duration_s
+            got = decoded_seconds(final)
+            if expected and got and got < 0.97 * expected - 2:
+                raise DownloadError(f"audio incomplet ({got:.0f} s sur {expected:.0f} s)")
+            subs = download_subtitles(url, base_opts, subs_stem, ie_key) if subs_stem else []
             return final, subs
         except DownloadError as exc:
             if "DRM" in str(exc):
                 raise DrmProtected(str(exc)) from exc
             last_error = exc
-            log(f"    essai yt-dlp échoué ({'générique' if extra else 'extracteur dédié'}) : {exc}")
+            log(f"    essai yt-dlp échoué ({label}) : {exc}")
+        except (RuntimeError, OSError, ValueError, KeyError) as exc:
+            last_error = exc
+            log(f"    essai échoué ({label}) : {type(exc).__name__}: {exc}")
     raise RuntimeError(f"échec du téléchargement audio : {last_error}")
 
 
@@ -331,10 +398,9 @@ def list_formats(source: MediaSource) -> list[dict]:
     from yt_dlp import YoutubeDL
 
     opts = {"quiet": True, "no_warnings": True, "http_headers": dict(source.headers), "noplaylist": True}
-    if source.kind in ("cloudflare", "hls", "dash"):
-        opts["force_generic_extractor"] = True
+    ie_key = "Generic" if source.kind in ("cloudflare", "hls", "dash") else None
     with YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(_ytdlp_url(source), download=False, process=False) or {}
+        info = ydl.extract_info(_ytdlp_url(source), download=False, process=False, ie_key=ie_key) or {}
     return [{k: f.get(k) for k in ("format_id", "ext", "acodec", "vcodec", "abr", "height", "has_drm")}
             for f in info.get("formats") or []] + [
         {"format_id": f"sous-titres:{lang}", "ext": "vtt"} for lang in (info.get("subtitles") or {})]

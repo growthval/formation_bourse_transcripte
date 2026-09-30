@@ -57,6 +57,8 @@ class Lesson:
     audio_files: list[str] = field(default_factory=list)
     subtitle_files: list[str] = field(default_factory=list)
     transcript_files: list[str] = field(default_factory=list)
+    stream_missed: bool = False    # lecteur vu mais flux non capté : à retenter
+    drm: bool = False              # vidéo protégée : ne pas retenter
     error: str = ""
 
     @property
