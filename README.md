@@ -70,14 +70,14 @@ https://zonebourse.podia.com/p/courses/investir-en-bourse
 
 ### Étape 0 : se connecter (une seule fois)
 
-L'outil utilise son propre navigateur, séparé de votre Chrome ou Edge habituel : il faut donc vous y connecter une fois.
+L'outil utilise son propre profil de navigateur, séparé de votre Edge ou Chrome habituel : il faut donc vous y connecter une fois. Pendant la connexion, la fenêtre est un Edge tout à fait normal, que l'outil ne pilote pas : la vérification anti-robot de Cloudflare passe comme d'habitude. L'outil ne prend la main qu'après votre connexion.
 
 ```bat
 formation connexion "https://zonebourse.podia.com/p/courses/investir-en-bourse/341465-module-2-se-lancer/973576-se-lancer"
 ```
 
 - Une fenêtre Edge s'ouvre sur la page de connexion de Podia.
-- **Connectez-vous** : e-mail, mot de passe, puis le code reçu par e-mail si demandé. Cochez « faire confiance à cet appareil ».
+- **Connectez-vous** : e-mail, vérification Cloudflare (cochez la case si elle s'affiche), mot de passe, puis le code reçu par e-mail si demandé. Cochez « faire confiance à cet appareil ».
 - **Revenez dans la fenêtre noire et appuyez sur Entrée.**
 - Le message **`OK : vous êtes connecté`** confirme la connexion. Elle est gardée pour toutes les commandes suivantes.
 
@@ -188,6 +188,7 @@ Le planning fait **autant de séances que possible en gardant chacune à au moin
 
 | Symptôme | Solution |
 |---|---|
+| « Échec de la vérification » (Cloudflare) sur la page de connexion | Fermez toutes les fenêtres ouvertes par l'outil, mettez l'outil à jour, puis relancez `formation connexion`. Si la vérification échoue encore, cliquez sur « Résolution de problèmes » ou rechargez la page (F5) dans la même fenêtre. |
 | « Vous n'êtes pas connecté à Podia » | Lancez `formation connexion "<adresse>"`, connectez-vous dans la fenêtre, puis appuyez sur Entrée. Le travail déjà fait est gardé. |
 | « Aucune leçon trouvée » ou « lecteur vidéo repéré mais flux non capté » | Relancez avec `--diagnostic`. Le dossier `formation\diagnostic\` contient la page, les requêtes réseau et une capture d'écran. E-mail, nom et liens signés y sont masqués, mais la capture montre la page telle quelle : vérifiez-la avant de l'envoyer. |
 | « leçon inaccessible (verrouillée ?) » | La leçon n'est pas encore ouverte (déblocage progressif) : elle sera reprise à un prochain lancement. |

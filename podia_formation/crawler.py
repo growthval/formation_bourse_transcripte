@@ -527,7 +527,62 @@ class VisitResult:
     request_urls: list[str] = field(default_factory=list)
 
 
+def _app_path(exe_name: str) -> list[str]:
+    """Chemin déclaré dans le registre Windows (App Paths) pour un exécutable."""
+    if sys.platform != "win32":
+        return []
+    try:
+        import winreg
+    except ImportError:
+        return []
+    found = []
+    for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+        try:
+            with winreg.OpenKey(hive, rf"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{exe_name}") as key:
+                found.append(winreg.QueryValue(key, None))
+        except OSError:
+            continue
+    return found
+
+
+def browser_candidates(kind: str) -> list[tuple[str, str]]:
+    """Navigateurs installés sur l'ordinateur : [(nom, chemin de l'exécutable)]."""
+    env = os.environ.get
+    edge, chrome = [], []
+    if sys.platform == "win32":
+        for base in (env("PROGRAMFILES(X86)"), env("PROGRAMFILES"), env("LOCALAPPDATA")):
+            if base:
+                edge.append(str(Path(base, "Microsoft", "Edge", "Application", "msedge.exe")))
+                chrome.append(str(Path(base, "Google", "Chrome", "Application", "chrome.exe")))
+        edge += _app_path("msedge.exe")
+        chrome += _app_path("chrome.exe")
+    elif sys.platform == "darwin":
+        edge.append("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge")
+        chrome.append("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+    else:
+        import shutil
+        edge += [w for w in (shutil.which("microsoft-edge"), shutil.which("microsoft-edge-stable")) if w]
+        chrome += [w for w in (shutil.which("google-chrome"), shutil.which("google-chrome-stable"),
+                               shutil.which("chromium"), shutil.which("chromium-browser")) if w]
+    order = {"auto": [("Microsoft Edge", edge), ("Google Chrome", chrome)], "edge": [("Microsoft Edge", edge)],
+             "msedge": [("Microsoft Edge", edge)], "chrome": [("Google Chrome", chrome)], "chromium": []}
+    out = []
+    for label, paths in order.get(kind, order["auto"]):
+        for path in paths:
+            if path and Path(path).is_file() and all(path != p for _, p in out):
+                out.append((label, path))
+    return out
+
+
 class Crawler:
+    """Navigateur de l'outil.
+
+    Mode normal (fenêtre visible) : un Edge/Chrome ordinaire est lancé sans être piloté ; l'utilisateur
+    s'y connecte lui-même (la vérification anti-robot de Cloudflare voit un navigateur normal), puis
+    l'outil s'y rattache pour parcourir les leçons. Mode invisible (--headless) : navigateur piloté par
+    Playwright, avec la connexion déjà enregistrée dans le profil.
+    """
+
     def __init__(self, browser: str = "auto", headless: bool = False, profile: Path | None = None,
                  executable: str | None = None, login_timeout: int = 900,
                  log: Callable[[str], None] = print):
@@ -538,21 +593,47 @@ class Crawler:
         self.login_timeout = login_timeout
         self.log = log
         self._pw = None
+        self._browser = None
+        self._proc = None
+        self._port = 0
+        self._exe = ""
+        self.mode = "launch"
         self.context = None
         self.page = None
         self._media_requests: list = []
         self._all_urls: list[str] = []
         self.attachment_name_max = 70
+        # Options supplémentaires du navigateur (tests automatiques uniquement).
+        self.extra_args = os.environ.get("PODIA_EXTRA_BROWSER_ARGS", "").split()
 
     # -- cycle de vie --
     def __enter__(self) -> "Crawler":
-        from playwright.sync_api import Error as PlaywrightError, sync_playwright
+        from playwright.sync_api import sync_playwright
 
         if sys.platform == "win32":
             # Requêtes faites hors du navigateur (manifestes, PDF) : utiliser les certificats de Windows.
             os.environ.setdefault("NODE_OPTIONS", "--use-system-ca")
         self.profile.mkdir(parents=True, exist_ok=True)
         self._pw = sync_playwright().start()
+        try:
+            if not self.headless:
+                found = [("chemin fourni", self.executable)] if self.executable else browser_candidates(self.browser)
+                if found:
+                    label, self._exe = found[0]
+                    self.mode = "cdp"
+                    self._start_process("about:blank")
+                    self._attach()
+                    self.log(f"Navigateur : {label}")
+                    return self
+            self._launch_playwright()
+        except Exception:
+            self.__exit__()
+            raise
+        return self
+
+    def _launch_playwright(self) -> None:
+        from playwright.sync_api import Error as PlaywrightError
+
         options = dict(
             user_data_dir=str(self.profile), headless=self.headless, locale="fr-FR",
             viewport={"width": 1366, "height": 900}, accept_downloads=True,
@@ -581,7 +662,6 @@ class Crawler:
             except PlaywrightError as exc:
                 errors.append(f"{label} : {str(exc).splitlines()[0]}")
         if self.context is None:
-            self._pw.stop()
             raise RuntimeError(
                 "Impossible de lancer un navigateur. Installez Chromium avec "
                 "« python -m playwright install chromium », ou utilisez --navigateur chrome/msedge.\n"
@@ -589,19 +669,100 @@ class Crawler:
         self.context.set_default_timeout(30_000)
         self.context.on("request", self._on_request)
         self.page = self.context.pages[0] if self.context.pages else self.context.new_page()
-        return self
+
+    # -- navigateur ordinaire, rattaché après coup (mode « cdp ») --
+    def _devtools(self, path: str, method: str = "GET"):
+        import json
+        import urllib.request
+
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        req = urllib.request.Request(f"http://127.0.0.1:{self._port}{path}", method=method)
+        with opener.open(req, timeout=5) as resp:
+            body = resp.read().decode("utf-8", "replace")
+        return json.loads(body) if body.strip().startswith(("{", "[")) else body
+
+    def _start_process(self, url: str) -> None:
+        import socket
+        import subprocess
+
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            self._port = sock.getsockname()[1]
+        args = [self._exe, f"--user-data-dir={self.profile}", f"--remote-debugging-port={self._port}",
+                "--no-first-run", "--no-default-browser-check", "--mute-audio",
+                "--autoplay-policy=no-user-gesture-required", "--lang=fr-FR", *self.extra_args, url]
+        self._proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        deadline = time.monotonic() + 40
+        while time.monotonic() < deadline:
+            try:
+                self._devtools("/json/version")
+                return
+            except Exception:
+                if self._proc.poll() is not None:
+                    break
+                time.sleep(0.5)
+        raise RuntimeError("Le navigateur ne répond pas. Fermez toutes les fenêtres du navigateur ouvertes par "
+                           "l'outil (ou redémarrez l'ordinateur), puis relancez la commande.")
+
+    def _attach(self) -> None:
+        self._browser = self._pw.chromium.connect_over_cdp(f"http://127.0.0.1:{self._port}")
+        self.context = self._browser.contexts[0] if self._browser.contexts else self._browser.new_context()
+        self.context.set_default_timeout(30_000)
+        self.context.on("request", self._on_request)
+        pages = [pg for pg in self.context.pages if not pg.url.startswith(("devtools:", "chrome-extension:"))]
+        self.page = pages[0] if pages else self.context.new_page()
+
+    def _detach(self) -> None:
+        try:
+            if self._browser:
+                self._browser.close()          # navigateur rattaché : se détache sans le fermer
+        except Exception:
+            pass
+        self._browser, self.context, self.page = None, None, None
+
+    def _close_process(self) -> None:
+        """Ferme proprement le navigateur (les cookies de connexion sont enregistrés dans le profil)."""
+        if self._browser:
+            try:
+                self._browser.new_browser_cdp_session().send("Browser.close")
+            except Exception:
+                pass
+        self._detach()
+        if self._proc and self._proc.poll() is None:
+            try:
+                self._proc.wait(timeout=10)
+            except Exception:
+                self._proc.terminate()
+                try:
+                    self._proc.wait(timeout=5)
+                except Exception:
+                    self._proc.kill()
+        self._proc = None
+
+    def _tab_urls(self) -> list[str]:
+        try:
+            return [t.get("url", "") for t in self._devtools("/json/list") if t.get("type") == "page"]
+        except Exception:
+            return []
 
     def __exit__(self, *exc) -> None:
         # Après un Ctrl+C, la boucle interne de Playwright peut être morte : fermer bloquerait.
-        fiber = getattr(self.context, "_dispatcher_fiber", None) or getattr(self._pw, "_dispatcher_fiber", None)
-        if fiber is not None and getattr(fiber, "dead", False):
-            return
-        try:
-            if self.context:
-                self.context.close()
-        except Exception:
-            pass
-        finally:
+        fiber = (getattr(self.context, "_dispatcher_fiber", None) or getattr(self._browser, "_dispatcher_fiber", None)
+                 or getattr(self._pw, "_dispatcher_fiber", None))
+        dead = fiber is not None and getattr(fiber, "dead", False)
+        if self.mode == "cdp":
+            if dead:
+                if self._proc and self._proc.poll() is None:
+                    self._proc.terminate()
+            else:
+                self._close_process()
+        elif not dead:
+            try:
+                if self.context:
+                    self.context.close()
+            except Exception:
+                pass
+        if not dead:
             try:
                 if self._pw:
                     self._pw.stop()
@@ -690,9 +851,9 @@ class Crawler:
             self._login(start_url, course)
         elif not has_lessons and not self._find_lesson_page(course):
             self._login(start_url, course)
-        data = page.evaluate(JS_SIDEBAR)
+        data = self.page.evaluate(JS_SIDEBAR)      # la page a pu changer pendant la connexion
         data["course"] = course
-        data["url"] = page.url
+        data["url"] = self.page.url
         return data
 
     def _find_lesson_page(self, course: str) -> bool:
@@ -712,10 +873,75 @@ class Crawler:
                 continue
         return False
 
+    def _connected(self, start_url: str, course: str) -> bool:
+        self.page.goto(start_url, wait_until="domcontentloaded", timeout=90_000)
+        self._settle()
+        if self.logged_out():
+            return False
+        return self._wait_lessons(course, 10_000) or self._find_lesson_page(course)
+
+    @staticmethod
+    def _enter_listener():
+        """Événement déclenché quand l'utilisateur appuie sur Entrée dans la console."""
+        import threading
+
+        pressed = threading.Event()
+
+        def wait_enter() -> None:
+            try:
+                if sys.stdin and sys.stdin.readline():
+                    pressed.set()
+            except Exception:
+                pass
+
+        threading.Thread(target=wait_enter, daemon=True).start()
+        return pressed
+
+    def _login_cdp(self, start_url: str, course: str) -> None:
+        """Connexion dans un navigateur ordinaire, non piloté : la vérification Cloudflare passe normalement."""
+        origin = "{0.scheme}://{0.netloc}".format(urlparse(start_url))
+        on_login = lambda url: any(w in urlparse(url).path.lower() for w in LOGIN_WORDS)
+        self._close_process()
+        self._start_process(origin + "/login")
+        self.log("\n>>> Vous n'êtes pas encore connecté.\n"
+                 ">>> Connectez-vous à Podia dans la fenêtre du navigateur qui vient de s'ouvrir : e-mail, "
+                 "vérification\n>>> Cloudflare, mot de passe, puis le code reçu par e-mail si demandé "
+                 "(cochez « faire confiance à cet appareil »).\n"
+                 ">>> Ne fermez pas cette fenêtre. Quand vous êtes connecté, revenez ici et appuyez sur Entrée.\n")
+        pressed = self._enter_listener()
+        deadline = time.monotonic() + self.login_timeout
+        quiet = 0
+        while time.monotonic() < deadline:
+            time.sleep(1.5)
+            if self._proc is None or self._proc.poll() is not None:
+                raise NotLoggedIn("La fenêtre du navigateur a été fermée avant la connexion.")
+            urls = [u for u in self._tab_urls() if u.startswith(origin)]
+            quiet = quiet + 1 if urls and not any(on_login(u) for u in urls) else 0
+            if not (pressed.is_set() or quiet >= 3):
+                continue
+            self._attach()                       # l'outil ne prend la main qu'une fois la connexion faite
+            try:
+                if self._connected(start_url, course):
+                    self.log(">>> Connexion réussie.\n")
+                    self._settle()
+                    return
+            except Exception:
+                pass
+            self.log(">>> La connexion n'est pas encore détectée : terminez-la dans la fenêtre du navigateur, "
+                     "puis appuyez de nouveau sur Entrée.")
+            self._close_process()
+            self._start_process(origin + "/login")
+            quiet = 0
+            if pressed.is_set():
+                pressed = self._enter_listener()
+        raise NotLoggedIn("Connexion non détectée dans le délai imparti.")
+
     def _login(self, start_url: str, course: str) -> None:
         """Laisse l'utilisateur se connecter dans la fenêtre, puis vérifie la connexion."""
         if self.headless:
             raise NotLoggedIn("Vous n'êtes pas connecté à Podia : relancez sans --headless pour vous connecter.")
+        if self.mode == "cdp":
+            return self._login_cdp(start_url, course)
         import threading
 
         page = self.page

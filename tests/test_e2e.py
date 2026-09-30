@@ -207,6 +207,32 @@ def test_public_curriculum_is_not_mistaken_for_a_login(fresh_site, tmp_path, mon
         assert res.videos and res.title == "Se lancer"
 
 
+def test_login_in_an_unpiloted_browser_then_attach(fresh_site, tmp_path, monkeypatch):
+    """Mode normal : navigateur ordinaire (non piloté pendant la connexion, pour Cloudflare), rattaché ensuite."""
+    from podia_formation.crawler import Crawler
+
+    site = fresh_site
+    monkeypatch.setenv("PODIA_EXTRA_BROWSER_ARGS", "--headless=new --no-sandbox")
+    monkeypatch.setattr(site, "public_preview", True)
+    messages = []
+    profile = tmp_path / "profil"
+    with Crawler(headless=False, profile=profile, executable=CHROMIUM, log=messages.append) as cr:
+        cr.login_timeout = 90
+        assert cr.mode == "cdp"
+        cr.open_course(site.lesson_url("1003"))
+        assert any("Connexion réussie" in m for m in messages)
+        res = cr.visit(site.lesson_url("1003"))
+        assert res.videos and res.title == "Se lancer"
+        proc = cr._proc
+    assert proc.poll() is not None                       # navigateur fermé à la fin
+    # Lancement suivant : la connexion est gardée dans le profil, aucune nouvelle connexion demandée.
+    messages.clear()
+    with Crawler(headless=False, profile=profile, executable=CHROMIUM, log=messages.append) as cr:
+        cr.open_course(site.lesson_url("1003"))
+        assert not any("pas encore connecté" in m for m in messages)
+        assert cr.visit(site.lesson_url("1001")).videos
+
+
 def test_headless_without_session_fails_cleanly(fresh_site, tmp_path, capsys, monkeypatch):
     from podia_formation import cli
 
