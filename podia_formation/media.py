@@ -14,6 +14,7 @@ from urllib.parse import parse_qs, quote, urljoin, urlparse
 
 from .models import MediaSource
 
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")        # codes couleur dans les messages de yt-dlp
 # Manifestes HLS/DASH (Cloudflare Stream, lecteurs génériques).
 MANIFEST_RE = re.compile(r"(?:/manifest/video\.(?:m3u8|mpd)|\.m3u8|\.mpd)$", re.I)   # appliqué au chemin
 WISTIA_MEDIA_RE = re.compile(r"fast\.wistia\.(?:net|com)/embed/medias/([a-z0-9]{10})\b")
@@ -351,7 +352,7 @@ def download_audio(source: MediaSource, dest_stem: Path, subs_stem: Path | None 
     # Pour un flux capté : d'abord l'URL exacte vue par le navigateur (extracteur générique),
     # puis l'extracteur Cloudflare de yt-dlp en secours.
     attempts: list[str | None] = ["Generic", None] if source.kind in ("cloudflare", "hls", "dash") else [None]
-    last_error: Exception | None = None
+    last_error = ""
     for ie_key in attempts:
         label = "générique" if ie_key else "extracteur dédié"
         try:
@@ -385,11 +386,11 @@ def download_audio(source: MediaSource, dest_stem: Path, subs_stem: Path | None 
         except DownloadError as exc:
             if "DRM" in str(exc):
                 raise DrmProtected(str(exc)) from exc
-            last_error = exc
-            log(f"    essai yt-dlp échoué ({label}) : {exc}")
+            last_error = ANSI_RE.sub("", str(exc))
+            log(f"    essai yt-dlp échoué ({label}) : {last_error}")
         except (RuntimeError, OSError, ValueError, KeyError) as exc:
-            last_error = exc
-            log(f"    essai échoué ({label}) : {type(exc).__name__}: {exc}")
+            last_error = f"{type(exc).__name__}: {exc}"
+            log(f"    essai échoué ({label}) : {last_error}")
     raise RuntimeError(f"échec du téléchargement audio : {last_error}")
 
 
