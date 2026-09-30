@@ -4,6 +4,7 @@ from podia_formation.crawler import (
     classify_lesson,
     course_slug_from_url,
     course_title,
+    is_login_url,
     lesson_from_url,
     pdf_page_count,
     redact,
@@ -134,3 +135,16 @@ def test_module_numbers_follow_the_course():
     lessons[0].module_title = "Bonus"                     # un module sans numéro : numérotation dans l'ordre
     renumber(lessons)
     assert [l.module_index for l in lessons] == [1, 2, 2, 3]
+
+
+def test_lesson_titles_are_never_taken_for_a_login_page():
+    site = "https://zonebourse.podia.com"
+    lesson = (site + "/p/courses/investir-en-bourse/341500-module-15-selection/974000-"
+              "fiche-pratique-les-15-points-a-verifier-quand-on-selectionne-un-titre")
+    assert not is_login_url(lesson)                               # cas réel : « a-verifier »
+    for slug in ("signal-d-achat", "une-session-de-bourse", "l-auteur-authentique", "design", "connexion-au-courtier"):
+        assert not is_login_url(f"{site}/p/courses/investir-en-bourse/1-module/2-{slug}")
+    assert not is_login_url(site + "/p/home")
+    for path in ("/login", "/login?return_to=%2Fp%2Fhome", "/users/sign_in", "/p/login", "/two_factor/new",
+                 "/password/new", "/sessions/new", "/auth/callback", "/login/verify"):
+        assert is_login_url(site + path), path

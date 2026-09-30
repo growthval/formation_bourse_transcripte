@@ -36,7 +36,11 @@ LESSON_URL_RE = re.compile(
     r"/(?P<lesson>\d+)-(?P<lesson_slug>[^/?#]+)/?$"
 )
 COURSE_URL_RE = re.compile(r"/(?:p|view)/courses/(?P<course>[^/?#]+)")
-LOGIN_WORDS = ("login", "sign", "password", "verif", "two_factor", "2fa", "session", "auth", "connexion")
+# Pages de connexion : un segment entier de l'adresse (« /login », « /users/sign_in »…), jamais un morceau
+# du titre d'une leçon (« …-points-a-verifier-… », « …-session-… »).
+LOGIN_PATH_RE = re.compile(
+    r"/(?:log_?in|sign_?in|sign_?up|sessions?|passwords?|verify|verification|two_factor|2fa|otp|"
+    r"o?auth\w*|connexion|magic_link)(?=[/?#.]|$)", re.I)
 STATUS_WORDS = re.compile(r"\s*(?:terminée?|complétée?|completed?|verrouillée?|locked|en cours|nouveau)\s*$", re.I)
 NAV_WORDS = re.compile(r"^(continuer|suivant|leçon suivante|précédent|precedent|leçon précédente|reprendre|"
                        r"commencer|démarrer|demarrer|valider|marquer|terminer|next|previous|prev|resume|start|"
@@ -342,6 +346,14 @@ JWT_RE = re.compile(r"eyJ[\w-]+\.[\w-]+\.[\w-]+")
 def course_slug_from_url(url: str) -> str:
     m = COURSE_URL_RE.search(urlparse(url).path)
     return m.group("course") if m else ""
+
+
+def is_login_url(url: str) -> bool:
+    """Adresse d'une page de connexion ? Les pages de la formation n'en sont jamais une."""
+    path = urlparse(url).path
+    if COURSE_URL_RE.search(path):
+        return False
+    return bool(LOGIN_PATH_RE.search(path))
 
 
 def _clean_anchor_text(text: str) -> str:
@@ -848,7 +860,7 @@ class Crawler:
         canon… ») ressemblerait sinon à une page réservée aux inscrits.
         """
         state = self._auth_state()
-        if any(w in urlparse(self.page.url).path.lower() for w in LOGIN_WORDS) or state.get("password"):
+        if is_login_url(self.page.url) or state.get("password"):
             return True
         if state.get("logout"):
             return False
@@ -870,7 +882,7 @@ class Crawler:
         for frame in self.page.frames:
             if self._frame_eval(frame, JS_LOGIN_FORM):
                 return True
-        return any(w in urlparse(self.page.url).path.lower() for w in LOGIN_WORDS)
+        return is_login_url(self.page.url)
 
     # -- connexion et liste des leçons --
     def open_course(self, start_url: str) -> dict:
@@ -969,7 +981,6 @@ class Crawler:
     def _login_cdp(self, start_url: str, course: str) -> None:
         """Connexion dans un navigateur ordinaire, non piloté : la vérification Cloudflare passe normalement."""
         origin = "{0.scheme}://{0.netloc}".format(urlparse(start_url))
-        on_login = lambda url: any(w in urlparse(url).path.lower() for w in LOGIN_WORDS)
         self._close_process()
         self._start_process(origin + "/login")
         self.log("\n>>> Vous n'êtes pas encore connecté.\n"
@@ -985,7 +996,7 @@ class Crawler:
             if self._proc is None or self._proc.poll() is not None:
                 raise NotLoggedIn("La fenêtre du navigateur a été fermée avant la connexion.")
             urls = [u for u in self._tab_urls() if u.startswith(origin)]
-            quiet = quiet + 1 if urls and not any(on_login(u) for u in urls) else 0
+            quiet = quiet + 1 if urls and not any(is_login_url(u) for u in urls) else 0
             auto = not auto_used and quiet >= 3          # détection automatique : une seule fois
             if not (pressed.is_set() or auto):
                 continue

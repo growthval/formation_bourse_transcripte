@@ -28,7 +28,7 @@ LESSONS = [
     ("102", "1003", "se-lancer", "Se lancer", "video_click", True),
     ("102", "1004", "je-teste-mes-connaissances", "Je teste mes connaissances sur... Se lancer", "quiz", True),
     ("102", "1005", "decryptage-bonus", "Décryptage : bonus caché", "article", False),
-    ("103", "1006", "fiche-pratique-secteurs", "Fiche Pratique : Quels secteurs ?", "pdf_inline", True),
+    ("103", "1006", "fiche-pratique-les-15-points-a-verifier-secteurs", "Fiche Pratique : Quels secteurs ?", "pdf_inline", True),
     ("103", "1007", "les-actions", "Les actions", "video_never", True),
 ]
 ARTICLE = " ".join(["La diversification réduit le risque d'un portefeuille d'actions."] * 60)
