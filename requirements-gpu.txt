@@ -1,0 +1,4 @@
+# Bibliothèques CUDA 12 / cuDNN 9 pour la transcription sur carte graphique NVIDIA (Windows et Linux).
+# Installer en plus de requirements.txt : pip install -r requirements-gpu.txt
+nvidia-cublas-cu12>=12,<13
+nvidia-cudnn-cu12>=9,<10

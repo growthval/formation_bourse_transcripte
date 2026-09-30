@@ -35,6 +35,16 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+### Carte graphique NVIDIA (fortement recommandé pour la transcription)
+
+Si votre PC a une carte NVIDIA (par exemple une GeForce GTX 1650), installez en plus les bibliothèques CUDA (environ 1 Go) :
+
+```bat
+pip install -r requirements-gpu.txt
+```
+
+L'outil teste la carte au démarrage de la transcription et choisit tout seul le bon réglage. Sur une carte de 4 Go comme la GTX 1650, il prend la précision `int8_float16` : environ 3 Go de mémoire, pour une perte de précision négligeable. Si la carte ne fonctionne pas, il bascule automatiquement sur le processeur. Pensez à garder le pilote NVIDIA à jour (GeForce Experience ou nvidia.com).
+
 ### Navigateur
 
 L'outil utilise **Microsoft Edge** (présent sur tous les Windows) ou **Google Chrome** s'ils sont installés. Sinon, installez le navigateur de Playwright :
@@ -84,15 +94,17 @@ python -m podia_formation transcrire
 ```
 
 - **Premier lancement** : téléchargement du modèle Whisper `large-v3`, environ 3 Go.
-- **Durée** : avec une carte graphique NVIDIA, environ 1 h pour 10 h d'audio. Sur un processeur seul, c'est bien plus long, **comptez une nuit ou plus**. Le travail peut être interrompu (Ctrl+C) et repris : les leçons déjà faites sont gardées.
+- **Durée** : sur une GTX 1650, comptez **environ 3 à 4 h pour 10 h d'audio** (estimation). Une carte plus récente va plus vite ; sur un processeur seul, **comptez une nuit ou plus**. Le travail peut être interrompu (Ctrl+C) et repris : les leçons déjà faites sont gardées.
 - Pour aller 3 à 4 fois plus vite, avec une qualité à peine inférieure : `--modele large-v3-turbo`.
+- **Modèle spécialisé français** : `--modele francais` utilise [whisper-large-v3-french](https://huggingface.co/bofenghuang/whisper-large-v3-french), le large-v3 affiné sur du français, annoncé plus précis sur les longs enregistrements. Pour comparer sur une leçon avant de tout lancer, transcrivez-la avec chaque modèle et relisez : `python -m podia_formation transcrire --lecons 2 --modele francais --forcer` (`--forcer` remplace la transcription existante de cette leçon).
 
 **Réglages de qualité utilisés** :
 - modèle `large-v3` (le plus précis de Whisper) ;
 - langue forcée en français ;
 - recherche en faisceau (beam 5) ;
 - filtre des silences, pour éviter les phrases inventées ;
-- un contexte propre à chaque leçon (titre, module, vocabulaire boursier : PEA, ETF, PER, CAC 40, dividendes…) pour bien écrire les termes techniques.
+- un contexte en français et des mots-clés rappelés à Whisper **tout au long de chaque vidéo** (titre de la leçon, termes boursiers : PEA-PME, ETF, CAC 40, MSCI World, EBITDA…) pour bien écrire les termes techniques ;
+- un filtre des phrases que Whisper invente parfois (« Sous-titrage Société Radio-Canada », « Merci d'avoir regardé »…) et des répétitions en boucle.
 
 Vous pouvez ajouter vos propres termes (noms propres, sigles), un par ligne, dans un fichier :
 
@@ -157,7 +169,8 @@ Le planning prend le nombre de séances qui donne **au moins 1 h en moyenne par 
 | « Aucune leçon trouvée » ou « lecteur vidéo repéré mais flux non capté » | Relancez avec `--diagnostic`. Le dossier `formation/diagnostic/` contient la page, les requêtes réseau (liens signés masqués) et une capture d'écran. |
 | « Impossible de lancer un navigateur » | `python -m playwright install chromium`, ou `--navigateur chrome` / `--navigateur msedge`. |
 | « vidéo protégée par DRM » | La vidéo ne peut pas être récupérée ; l'outil passe à la suivante. |
-| Transcription trop lente | `--modele large-v3-turbo`, ou un ordinateur avec carte graphique NVIDIA (`--appareil cuda`). |
+| Transcription trop lente | Vérifiez que le message « GPU retenu » s'affiche. Sinon, installez `requirements-gpu.txt` et mettez à jour le pilote NVIDIA. En dernier recours : `--modele large-v3-turbo`. |
+| « Le GPU est inutilisable » | Installez `pip install -r requirements-gpu.txt`, mettez à jour le pilote NVIDIA, puis relancez. Pour forcer un réglage : `--precision int8`. |
 
 Le profil du navigateur, qui garde votre connexion, est dans `~/.podia_formation/navigateur` (`C:\Users\<vous>\.podia_formation\navigateur` sous Windows). Supprimez ce dossier pour vous déconnecter complètement.
 

@@ -323,7 +323,7 @@ def cmd_transcrire(args) -> None:
         write_reports(inv, root, args)
         return
     total_audio = sum(l.video_duration_s or 0 for l in todo)
-    model, device = load_model(args.modele, args.appareil, args.precision, args.threads, log)
+    model, device = load_model(args.modele, args.appareil, args.precision, args.threads, log, args.beam)
     count = token_counter(model)
     log(f"Modèle prêt sur {'GPU' if device == 'cuda' else 'processeur (CPU)'}. "
         f"{len(todo)} leçon(s), {format_duration(total_audio)} d'audio à transcrire.")

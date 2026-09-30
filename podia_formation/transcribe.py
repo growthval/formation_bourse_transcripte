@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -151,6 +152,8 @@ def ensure_model(name: str, log: Callable[[str], None] = print) -> str:
                                                    "tokenizer.json", "vocabulary.*"])
 
 
+# Essai réel dans un processus séparé (une bibliothèque CUDA manquante peut faire planter le processus) :
+# 30 s de bruit, sans filtre de silence, pour solliciter l'encodeur et la recherche en faisceau.
 _SMOKE = """
 import sys
 sys.path.insert(0, {pkg!r})
@@ -159,12 +162,39 @@ _preload_cuda_dlls()
 import numpy as np
 from faster_whisper import WhisperModel
 m = WhisperModel({path!r}, device="cuda", compute_type={ct!r})
-list(m.transcribe(np.zeros(16000, dtype=np.float32), language="fr", vad_filter=False, beam_size=5)[0])
+audio = np.random.default_rng(0).normal(0, 0.02, 16000 * 30).astype(np.float32)
+list(m.transcribe(audio, language="fr", vad_filter=False, beam_size={beam}, word_timestamps=True)[0])
 """
 
 
+def gpu_memory_mb() -> int | None:
+    """Mémoire de la carte NVIDIA (via nvidia-smi, installé avec le pilote)."""
+    exe = shutil.which("nvidia-smi")
+    if not exe:
+        return None
+    try:
+        out = subprocess.run([exe, "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+                             capture_output=True, text=True, timeout=20).stdout
+        return max(int(float(x)) for x in out.split() if x.strip())
+    except Exception:
+        return None
+
+
+def gpu_compute_types(supported: set[str], memory_mb: int | None) -> list[str]:
+    """Précisions à essayer, de la meilleure à la plus sûre.
+
+    large-v3 en float16 demande ~4,5 Go avec beam 5 : sur une carte de 4 Go (GTX 1650…),
+    on commence par int8_float16 (~3 Go, perte de précision négligeable).
+    """
+    if memory_mb is not None and memory_mb < 6000:
+        order = ["int8_float16", "int8", "int8_float32"]
+    else:
+        order = ["float16", "int8_float16", "int8"]
+    return [t for t in order if t in supported] or ["default"]
+
+
 def select_device(requested: str, model_path: str, precision: str = "",
-                  log: Callable[[str], None] = print) -> tuple[str, str]:
+                  log: Callable[[str], None] = print, beam_size: int = 5) -> tuple[str, str]:
     """(appareil, précision). Le GPU n'est retenu qu'après un essai réel réussi."""
     cpu = ("cpu", precision or "int8")
     if requested == "cpu":
@@ -180,29 +210,34 @@ def select_device(requested: str, model_path: str, precision: str = "",
         if requested == "cuda":
             log("⚠️ Aucun GPU NVIDIA utilisable : calcul sur le processeur.")
         return cpu
-    ct = precision or next((t for t in ("float16", "int8_float16", "float32", "int8") if t in types), "default")
+    memory = gpu_memory_mb()
+    candidates = [precision] if precision else gpu_compute_types(set(types), memory)
     pkg = str(Path(__file__).resolve().parent.parent)
-    try:
-        proc = subprocess.run([sys.executable, "-c", _SMOKE.format(pkg=pkg, path=model_path, ct=ct)],
-                              capture_output=True, text=True, errors="replace", timeout=1800)
-        ok = proc.returncode == 0
-        detail = (proc.stderr or "").strip().splitlines()[-1:] if not ok else []
-    except Exception as exc:
-        ok, detail = False, [str(exc)]
-    if not ok:
-        log("⚠️ Le GPU est inutilisable (bibliothèques CUDA 12 / cuDNN 9 absentes, carte trop ancienne ou "
-            f"mémoire insuffisante) : calcul sur le processeur. {' '.join(detail)}")
-        return cpu
-    return "cuda", ct
+    detail: list[str] = []
+    for ct in candidates:
+        log(f"Essai du GPU ({f'{memory / 1024:.1f} Go, ' if memory else ''}précision {ct})...")
+        try:
+            proc = subprocess.run([sys.executable, "-c", _SMOKE.format(pkg=pkg, path=model_path, ct=ct, beam=beam_size)],
+                                  capture_output=True, text=True, errors="replace", timeout=1800)
+            if proc.returncode == 0:
+                return "cuda", ct
+            detail = (proc.stderr or "").strip().splitlines()[-1:]
+        except Exception as exc:
+            detail = [str(exc)]
+    log("⚠️ Le GPU est inutilisable (bibliothèques CUDA 12 / cuDNN 9 absentes, carte trop ancienne ou "
+        f"mémoire insuffisante) : calcul sur le processeur. {' '.join(detail)}")
+    return cpu
 
 
 def load_model(name: str = DEFAULT_MODEL, device: str = "auto", precision: str = "",
-               threads: int = 0, log: Callable[[str], None] = print):
+               threads: int = 0, log: Callable[[str], None] = print, beam_size: int = 5):
     """(modèle, appareil)."""
     from faster_whisper import WhisperModel
 
     path = ensure_model(name, log)
-    device, compute_type = select_device(device, path, precision, log)
+    device, compute_type = select_device(device, path, precision, log, beam_size)
+    if device == "cuda":
+        log(f"GPU retenu (précision {compute_type}).")
     kwargs = {"cpu_threads": threads or cpu_threads()} if device == "cpu" else {}
     return WhisperModel(path, device=device, compute_type=compute_type, **kwargs), device
 

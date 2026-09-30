@@ -92,3 +92,12 @@ def test_outputs_keep_dotted_titles(tmp_path: Path):
     assert "00:00:03,500 --> 00:01:05,250" in srt
     md = files[1].read_text(encoding="utf-8")
     assert "**[00:00]** Bonjour." in md and "**[00:03]** Au revoir." in md   # pause de 1,5 s : nouveau paragraphe
+
+
+def test_gpu_precision_order_for_small_cards():
+    from podia_formation.transcribe import gpu_compute_types
+
+    all_types = {"float32", "float16", "int8", "int8_float16", "int8_float32"}
+    assert gpu_compute_types(all_types, 4096)[0] == "int8_float16"       # GTX 1650 (4 Go)
+    assert gpu_compute_types(all_types, 12288)[0] == "float16"
+    assert gpu_compute_types({"float32", "int8"}, None) == ["int8"]
