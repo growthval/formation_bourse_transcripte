@@ -36,10 +36,14 @@ PROMPT_MAX_TOKENS = 150
 HOTWORDS_MAX_TOKENS = 50
 
 # Phrases que Whisper invente sur les silences ou la musique (vues sur des corpus français).
+# Génériques de sous-titrage : jamais prononcés dans un cours, retirés où qu'ils soient.
 HALLUCINATIONS = re.compile(
-    r"sous-titr\w*.{0,40}(radio-canada|amara|st'? ?501|soustitreur)|amara\.org|merci d'avoir regardé"
-    r"|abonnez-vous|n'oubliez pas de (vous abonner|liker|mettre un pouce)|sous-titres réalisés",
-    re.I)
+    r"sous-titr\w*.{0,40}(radio-canada|amara|st'? ?501|soustitreur)|amara\.org|sous-titres réalisés", re.I)
+# Formules de fin de vidéo YouTube : retirées seulement quand elles forment tout le segment
+# (« abonnez-vous à la version Premium de Zonebourse » est une vraie phrase du cours).
+HALLUCINATIONS_SEULES = re.compile(
+    r"(merci d'avoir regardé( cette vidéo)?|abonnez-vous( à la chaîne)?|"
+    r"n'oubliez pas de (vous abonner|liker|mettre un pouce)( bleu)?)( et à bientôt)?", re.I)
 
 
 @dataclass
@@ -95,11 +99,22 @@ def read_terms(path: str | Path) -> list[str]:
 # --- Modèle et matériel ---------------------------------------------------------
 
 def _preload_cuda_dlls() -> None:
-    """Sous Windows, rend visibles les DLL CUDA installées par pip (nvidia-cublas-cu12, nvidia-cudnn-cu12)."""
-    if sys.platform != "win32":
-        return
+    """Rend visibles les bibliothèques CUDA installées par pip (nvidia-cublas-cu12, nvidia-cudnn-cu12)."""
     import ctypes
     import site
+
+    if sys.platform.startswith("linux"):
+        for root in [*site.getsitepackages(), site.getusersitepackages()]:
+            for sub in ("cuda_runtime", "cublas", "cudnn"):
+                libs = sorted(Path(root, "nvidia", sub, "lib").glob("*.so*"), key=lambda f: "Lt" not in f.name)
+                for lib in libs:
+                    try:
+                        ctypes.CDLL(str(lib), mode=ctypes.RTLD_GLOBAL)
+                    except OSError:
+                        pass
+        return
+    if sys.platform != "win32":
+        return
 
     roots = [*site.getsitepackages(), site.getusersitepackages()]
     for root in roots:
@@ -208,7 +223,7 @@ def select_device(requested: str, model_path: str, precision: str = "",
         count, types = 0, set()
     if not count:
         if requested == "cuda":
-            log("⚠️ Aucun GPU NVIDIA utilisable : calcul sur le processeur.")
+            log("ATTENTION : Aucun GPU NVIDIA utilisable : calcul sur le processeur.")
         return cpu
     memory = gpu_memory_mb()
     candidates = [precision] if precision else gpu_compute_types(set(types), memory)
@@ -224,7 +239,7 @@ def select_device(requested: str, model_path: str, precision: str = "",
             detail = (proc.stderr or "").strip().splitlines()[-1:]
         except Exception as exc:
             detail = [str(exc)]
-    log("⚠️ Le GPU est inutilisable (bibliothèques CUDA 12 / cuDNN 9 absentes, carte trop ancienne ou "
+    log("ATTENTION : Le GPU est inutilisable (bibliothèques CUDA 12 / cuDNN 9 absentes, carte trop ancienne ou "
         f"mémoire insuffisante) : calcul sur le processeur. {' '.join(detail)}")
     return cpu
 
@@ -232,7 +247,15 @@ def select_device(requested: str, model_path: str, precision: str = "",
 def load_model(name: str = DEFAULT_MODEL, device: str = "auto", precision: str = "",
                threads: int = 0, log: Callable[[str], None] = print, beam_size: int = 5):
     """(modèle, appareil)."""
-    from faster_whisper import WhisperModel
+    try:
+        import importlib
+        importlib.import_module("onnxruntime")   # filtre des silences : échoue aussi sans le composant Visual C++
+        from faster_whisper import WhisperModel
+    except (ImportError, OSError) as exc:
+        raise RuntimeError(
+            "Impossible de charger Whisper. Sous Windows, installez le composant Microsoft « Visual C++ "
+            "Redistributable x64 » (https://aka.ms/vs/17/release/vc_redist.x64.exe), puis relancez. "
+            f"Détail : {exc}") from exc
 
     path = ensure_model(name, log)
     device, compute_type = select_device(device, path, precision, log, beam_size)
@@ -263,6 +286,8 @@ def clean_segments(segments: Iterable[Segment]) -> list[Segment]:
         text = " ".join(seg.text.split())
         key = _key(text)
         if not key or HALLUCINATIONS.search(text) or seg.compression_ratio > 2.4:
+            continue
+        if HALLUCINATIONS_SEULES.fullmatch(text.strip(" .!?…,")):
             continue
         if keys and key == keys[-1]:
             continue                                   # « Merci. » / « Merci ! »
@@ -352,7 +377,7 @@ def transcribe_file(model, audio: Path, prompt: str, hotwords: str = "", log: Ca
     cleaned = clean_segments(out)
     spoken = sum(s.end - s.start for s in cleaned)
     if total > 60 and spoken < 0.3 * total:
-        log("      ⚠️ transcription très courte par rapport à la durée : vérifiez le fichier audio.")
+        log("      ATTENTION : transcription très courte par rapport à la durée : vérifiez le fichier audio.")
     return cleaned, (total or None)
 
 

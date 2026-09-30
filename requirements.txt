@@ -1,5 +1,7 @@
-yt-dlp>=2025.1.1
-playwright>=1.45
-faster-whisper>=1.1.0
+# Versions testées : yt-dlp 2026.08.19, playwright 1.63, faster-whisper 1.2.1, av 18.1 (Python 3.12 conseillé)
+yt-dlp>=2026.8.19
+playwright>=1.50,<2
+faster-whisper>=1.2,<2
+av>=14
 pypdf>=4.0
 tzdata

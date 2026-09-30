@@ -7,6 +7,7 @@ import re
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import ClassVar
 
 from .text import safe_filename
 
@@ -63,9 +64,12 @@ class Lesson:
     drm: bool = False              # vidéo protégée : ne pas retenter
     error: str = ""
 
+    # Longueur maximale du titre dans les noms de fichiers (réduite sous Windows si le dossier est profond).
+    TITLE_MAX: ClassVar[int] = 80
+
     @property
     def stem(self) -> str:
-        return f"M{self.module_index:02d}-L{self.lesson_index:02d} - {safe_filename(self.title, 80)}"
+        return f"M{self.module_index:02d}-L{self.lesson_index:02d} - {safe_filename(self.title, Lesson.TITLE_MAX)}"
 
     def quiz_minutes(self) -> float:
         if self.kind != "quiz":

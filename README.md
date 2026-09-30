@@ -5,7 +5,7 @@ Outil personnel pour une formation **Podia** à laquelle vous êtes inscrit (ici
 1. **Inventaire** : liste toutes les leçons (vidéos, articles, quiz, fiches PDF), mesure la durée réelle des vidéos et le temps de lecture des articles.
 2. **Audio** : récupère la piste son de chaque vidéo (fichiers `.m4a`).
 3. **Transcription** : transcrit l'audio en texte français avec Whisper, sur votre ordinateur, avec les réglages les plus précis.
-4. **Planning** : découpe la formation en séances d'au moins 1 h par jour et produit un fichier agenda (`.ics`).
+4. **Planning** : découpe la formation en séances d'**au moins 1 h** par jour et produit un fichier agenda (`.ics`).
 
 L'outil ouvre une fenêtre de navigateur où **vous vous connectez vous-même** à Podia. Il ne voit ni ne stocke votre mot de passe. Il utilise uniquement votre accès d'élève inscrit : pas de contournement de DRM, et si une vidéo en avait, l'outil le signale et passe à la suivante.
 
@@ -13,47 +13,50 @@ L'outil ouvre une fenêtre de navigateur où **vous vous connectez vous-même** 
 
 ---
 
-## 1. Installation (une seule fois)
+## 1. Installation sous Windows (une seule fois, environ 15 minutes)
 
-### Windows
+### 1.1 Installer Python 3.12
 
-1. Installez **Python 3.10 ou plus récent** depuis <https://www.python.org/downloads/>. Pendant l'installation, **cochez « Add python.exe to PATH »**.
-2. Téléchargez ce projet : bouton vert **Code → Download ZIP** sur GitHub, puis décompressez-le (par exemple dans `Documents\formation_bourse_transcripte`).
-3. Ouvrez le dossier dans l'Explorateur, tapez `cmd` dans la barre d'adresse puis Entrée. Dans la fenêtre noire, copiez :
+1. Téléchargez **Python 3.12** : <https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe>
+   (n'installez pas la toute dernière version, 3.15, pas encore prise en charge par Whisper).
+2. Lancez l'installateur et **cochez « Add python.exe to PATH »** en bas de la première fenêtre, puis « Install Now ».
+3. À la fin, si le bouton **« Disable path length limit »** apparaît, cliquez dessus.
 
-```bat
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-```
+### 1.2 Télécharger l'outil dans `C:\formation`
 
-### macOS / Linux
+1. Sur la page GitHub du projet, bouton vert **Code → Download ZIP**.
+2. Ouvrez le ZIP : il contient un dossier au nom très long. **Copiez le contenu de ce dossier** (les dossiers `podia_formation`, `tests` et les fichiers `README.md`, `installer_windows.bat`…) dans un nouveau dossier **`C:\formation`**.
+   Un chemin court évite les erreurs de chemin trop long de Windows. Évitez aussi les dossiers synchronisés par OneDrive (« Documents », « Bureau »).
+
+### 1.3 Lancer l'installation
+
+Double-cliquez sur **`C:\formation\installer_windows.bat`**. Il :
+- crée l'environnement Python de l'outil ;
+- installe les bibliothèques (yt-dlp, Playwright, faster-whisper…) ;
+- détecte votre **carte graphique NVIDIA** et installe alors les bibliothèques CUDA (environ 1 Go).
+
+Attendez le message **« Installation terminée »**. S'il y a une erreur, copiez le texte affiché.
+
+L'outil utilise **Microsoft Edge**, déjà présent sur Windows : rien d'autre à installer.
+
+### 1.4 Ouvrir l'invite de commandes au bon endroit
+
+Toutes les commandes de ce guide se tapent dans l'**invite de commandes** ouverte dans `C:\formation` :
+ouvrez le dossier `C:\formation` dans l'Explorateur, cliquez dans la barre d'adresse, tapez **`cmd`** puis Entrée.
+
+<details>
+<summary>macOS / Linux</summary>
+
+Installez Python 3.12 (python.org, ou `brew install python@3.12`), puis dans le dossier de l'outil :
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m playwright install chromium     # si Chrome n'est pas installé
 ```
 
-### Carte graphique NVIDIA (fortement recommandé pour la transcription)
-
-Si votre PC a une carte NVIDIA (par exemple une GeForce GTX 1650), installez en plus les bibliothèques CUDA (environ 1 Go) :
-
-```bat
-pip install -r requirements-gpu.txt
-```
-
-L'outil teste la carte au démarrage de la transcription et choisit tout seul le bon réglage. Sur une carte de 4 Go comme la GTX 1650, il prend la précision `int8_float16` : environ 3 Go de mémoire, pour une perte de précision négligeable. Si la carte ne fonctionne pas, il bascule automatiquement sur le processeur. Pensez à garder le pilote NVIDIA à jour (GeForce Experience ou nvidia.com).
-
-### Navigateur
-
-L'outil utilise **Microsoft Edge** (présent sur tous les Windows) ou **Google Chrome** s'ils sont installés. Sinon, installez le navigateur de Playwright :
-
-```bash
-python -m playwright install chromium
-```
-
-> À chaque nouvelle session, réactivez l'environnement : `.venv\Scripts\activate` (Windows) ou `source .venv/bin/activate` (macOS/Linux).
+Remplacez ensuite `formation` par `.venv/bin/python -m podia_formation` dans les commandes ci-dessous. Sous Linux avec une carte NVIDIA : `.venv/bin/python -m pip install -r requirements-gpu.txt`. Sur Mac, la transcription se fait sur le processeur.
+</details>
 
 ---
 
@@ -69,84 +72,88 @@ https://zonebourse.podia.com/p/courses/investir-en-bourse
 
 Elle vérifie sur **une seule leçon** que tout fonctionne avec votre compte :
 
-```bash
-python -m podia_formation sonde "https://zonebourse.podia.com/p/courses/investir-en-bourse/341465-module-2-se-lancer/973576-se-lancer"
+```bat
+formation sonde "https://zonebourse.podia.com/p/courses/investir-en-bourse/341465-module-2-se-lancer/973576-se-lancer"
 ```
 
-- Une fenêtre de navigateur s'ouvre : **connectez-vous à Podia** (e-mail, mot de passe, et code reçu par e-mail si demandé ; cochez « faire confiance à cet appareil »).
-- L'outil reprend tout seul, analyse la leçon et récupère son audio dans `formation/sonde/audio/`.
-- Tout va bien si vous voyez `✅ Audio récupéré`. Sinon, voyez la section **Dépannage**.
+- Une fenêtre Edge s'ouvre : **connectez-vous à Podia** (e-mail, mot de passe, et code reçu par e-mail si demandé ; cochez « faire confiance à cet appareil »). Ne fermez pas cette fenêtre.
+- L'outil reprend tout seul, analyse la leçon et récupère son audio dans `formation\sonde\audio\`.
+- Tout va bien si vous voyez **`OK : Audio récupéré`**. Sinon, voyez la section **Dépannage**.
 
 ### Étape 2 : inventaire + audio de toute la formation
 
-```bash
-python -m podia_formation audio "https://zonebourse.podia.com/p/courses/investir-en-bourse"
+```bat
+formation audio "https://zonebourse.podia.com/p/courses/investir-en-bourse"
 ```
 
-Comptez 30 à 60 minutes pour environ 94 leçons. À la fin, l'outil affiche **le nombre d'heures de vidéo**, le temps de lecture des articles et le temps d'étude total estimé. Le détail est dans `formation/resume.md`.
+Comptez 30 à 60 minutes pour environ 94 leçons. À la fin, l'outil affiche **le nombre d'heures de vidéo**, le temps de lecture des articles et le temps d'étude total estimé. Le détail est dans `formation\resume.md`.
 
-Pour avoir seulement les durées, sans rien télécharger : `python -m podia_formation inventaire "<adresse>"`.
+Pour avoir seulement l'inventaire et les durées, sans télécharger l'audio : `formation inventaire "<adresse>"`. Les textes des articles et les fiches PDF sont récupérés dans les deux cas.
 
 ### Étape 3 : transcription en texte
 
-```bash
-python -m podia_formation transcrire
+```bat
+formation transcrire
 ```
 
-- **Premier lancement** : téléchargement du modèle Whisper `large-v3`, environ 3 Go.
-- **Durée** : sur une GTX 1650, comptez **environ 3 à 4 h pour 10 h d'audio** (estimation). Une carte plus récente va plus vite ; sur un processeur seul, **comptez une nuit ou plus**. Le travail peut être interrompu (Ctrl+C) et repris : les leçons déjà faites sont gardées.
-- Pour aller 3 à 4 fois plus vite, avec une qualité à peine inférieure : `--modele large-v3-turbo`.
-- **Modèle spécialisé français** : `--modele francais` utilise [whisper-large-v3-french](https://huggingface.co/bofenghuang/whisper-large-v3-french), le large-v3 affiné sur du français, annoncé plus précis sur les longs enregistrements. Pour comparer sur une leçon avant de tout lancer, transcrivez-la avec chaque modèle et relisez : `python -m podia_formation transcrire --lecons 2 --modele francais --forcer` (`--forcer` remplace la transcription existante de cette leçon).
+- **Premier lancement** : téléchargement du modèle Whisper `large-v3`, environ 3 Go, avec une barre de progression.
+- **Carte graphique** : l'outil la teste et choisit tout seul le réglage. Sur une GeForce GTX 1650 (4 Go), c'est la précision `int8_float16`. Vérifiez que le message **« GPU retenu »** s'affiche.
+- **Durée** : sur une GTX 1650, **environ 3 à 4 h pour 10 h d'audio** (estimation). Sur un processeur seul, **une nuit ou plus**. Vous pouvez interrompre (Ctrl+C) et relancer : les leçons déjà faites sont gardées.
+- **Plus rapide** : `--modele large-v3-turbo`, 3 à 4 fois plus rapide, pour une qualité à peine inférieure.
+- **Modèle spécialisé français** : `--modele francais` utilise [whisper-large-v3-french](https://huggingface.co/bofenghuang/whisper-large-v3-french), le large-v3 affiné sur du français et annoncé plus précis sur les longs enregistrements. Pour comparer sur une leçon avant de tout lancer :
+  `formation transcrire --lecons 2 --modele francais --forcer`
+  `--forcer` remplace la transcription existante de cette leçon ; relisez, puis gardez le modèle que vous préférez.
 
 **Réglages de qualité utilisés** :
-- modèle `large-v3` (le plus précis de Whisper) ;
+- modèle `large-v3`, le plus précis de Whisper ;
 - langue forcée en français ;
 - recherche en faisceau (beam 5) ;
 - filtre des silences, pour éviter les phrases inventées ;
-- un contexte en français et des mots-clés rappelés à Whisper **tout au long de chaque vidéo** (titre de la leçon, termes boursiers : PEA-PME, ETF, CAC 40, MSCI World, EBITDA…) pour bien écrire les termes techniques ;
+- un contexte en français et des mots-clés rappelés à Whisper **tout au long de chaque vidéo** : titre de la leçon et termes boursiers (PEA-PME, ETF, CAC 40, MSCI World, EBITDA…) ;
 - un filtre des phrases que Whisper invente parfois (« Sous-titrage Société Radio-Canada », « Merci d'avoir regardé »…) et des répétitions en boucle.
 
-Vous pouvez ajouter vos propres termes (noms propres, sigles), un par ligne, dans un fichier :
+Vous pouvez ajouter vos propres termes (noms propres, sigles), un par ligne, dans un fichier texte :
 
-```bash
-python -m podia_formation transcrire --vocabulaire mes_termes.txt
+```bat
+formation transcrire --vocabulaire mes_termes.txt
 ```
 
 ### Étape 4 : planning
 
-```bash
-python -m podia_formation planning --debut 2026-10-01 --heure 20:00 --minutes 60 --jours tous
+```bat
+formation planning --debut 01/10/2026 --heure 20h00 --minutes 60 --jours tous
 ```
 
-- `--jours semaine` (du lundi au vendredi) ou `--jours lun,mer,ven,dim`.
-- `--a-partir-de 12` démarre le planning à la leçon n°12.
-- `--facteur-video 1.5` compte plus de temps de pause et de notes par minute de vidéo (1.25 par défaut).
+- **Jours** : `--jours semaine` (du lundi au vendredi), `--jours lun-ven`, `--jours week-end` ou `--jours lun,mer,ven`.
+- **Point de départ** : `--a-partir-de 12` démarre le planning à la leçon n°12.
+- **Temps par vidéo** : `--facteur-video 1.5` compte plus de temps de pause et de notes par minute de vidéo (1.25 par défaut).
+- **Réglages mémorisés** : ils sont conservés pour les relances suivantes.
 
-Le planning est dans `formation/planning.md`. Importez `formation/planning.ics` dans Google Agenda (**Paramètres → Importer et exporter → Importer**), Outlook ou Apple Calendrier.
+Le planning est dans `formation\planning.md`. Pour l'agenda, importez `formation\planning.ics` dans Google Agenda (**Paramètres → Importer et exporter → Importer**), Outlook ou Apple Calendrier. Si vous réimportez un planning mis à jour, les séances sont modifiées plutôt que dupliquées.
 
 ### Tout d'un coup
 
-```bash
-python -m podia_formation tout "https://zonebourse.podia.com/p/courses/investir-en-bourse" --debut 2026-10-01
+```bat
+formation tout "https://zonebourse.podia.com/p/courses/investir-en-bourse" --debut 01/10/2026
 ```
 
 ---
 
-## 3. Ce que vous obtenez (dossier `formation/`)
+## 3. Ce que vous obtenez (dossier `C:\formation\formation\`)
 
 | Fichier / dossier | Contenu |
 |---|---|
 | `resume.md` | Heures de vidéo, temps de lecture, temps d'étude total, détail par module |
 | `inventaire.csv` | Tableau de toutes les leçons (s'ouvre dans Excel) |
-| `audio/` | `M02-L01 - Se lancer.m4a`… (module, leçon, titre) |
-| `transcriptions/` | Pour chaque vidéo : `.txt` (texte en paragraphes), `.md` (avec minutage), `.srt` (sous-titres) |
-| `textes/` | Le texte des articles et des pages de leçon |
-| `fichiers/` | Les fiches PDF jointes aux leçons |
-| `sous-titres/` | Sous-titres fournis par la plateforme, s'il y en a |
+| `audio\` | `M02-L01 - Se lancer.m4a`… (module, leçon, titre) |
+| `transcriptions\` | Pour chaque vidéo : `.txt` (texte en paragraphes), `.md` (avec minutage), `.srt` (sous-titres) |
+| `textes\` | Le texte des articles et des pages de leçon |
+| `fichiers\` | Les fiches PDF jointes aux leçons |
+| `sous-titres\` | Sous-titres fournis par la plateforme, s'il y en a |
 | `formation_complete.md` | **Toute la formation en un seul document**, dans l'ordre : transcriptions et articles |
 | `planning.md`, `planning.ics` | Le planning jour par jour et le fichier agenda |
 
-Toutes les commandes peuvent être relancées : ce qui est déjà fait est conservé (`--forcer` pour tout refaire).
+Toutes les commandes peuvent être relancées : ce qui est déjà fait est conservé (`--forcer` pour tout refaire). N'ouvrez qu'une commande à la fois : une deuxième commande lancée sur le même dossier est refusée.
 
 ---
 
@@ -156,8 +163,9 @@ Toutes les commandes peuvent être relancées : ce qui est déjà fait est conse
 - **Articles** : 200 mots par minute.
 - **Quiz** : 1 minute par question (3 minutes au minimum), ou 5 minutes si le nombre de questions n'est pas visible.
 - **Fiches PDF** : 2 minutes par page.
+- **Vidéo dont la durée n'a pas pu être mesurée** : durée typique des autres vidéos, signalée « (durée estimée) » dans le planning.
 
-Le planning prend le nombre de séances qui donne **au moins 1 h en moyenne par séance**, puis répartit les leçons dans l'ordre, sans les couper, de façon aussi régulière que possible.
+Le planning fait **autant de séances que possible en gardant chacune à au moins 1 h**. Il répartit les leçons dans l'ordre, sans les couper, de façon aussi régulière que possible.
 
 ---
 
@@ -165,20 +173,23 @@ Le planning prend le nombre de séances qui donne **au moins 1 h en moyenne par 
 
 | Symptôme | Solution |
 |---|---|
-| « Session absente ou expirée » | Relancez **sans** `--headless` pour vous reconnecter dans la fenêtre. |
-| « Aucune leçon trouvée » ou « lecteur vidéo repéré mais flux non capté » | Relancez avec `--diagnostic`. Le dossier `formation/diagnostic/` contient la page, les requêtes réseau (liens signés masqués) et une capture d'écran. |
-| « Impossible de lancer un navigateur » | `python -m playwright install chromium`, ou `--navigateur chrome` / `--navigateur msedge`. |
+| « Session absente ou expirée » / « La session Podia a expiré » | Relancez la même commande **sans** `--headless` et reconnectez-vous dans la fenêtre. Le travail déjà fait est gardé. |
+| « Aucune leçon trouvée » ou « lecteur vidéo repéré mais flux non capté » | Relancez avec `--diagnostic`. Le dossier `formation\diagnostic\` contient la page, les requêtes réseau et une capture d'écran. E-mail, nom et liens signés y sont masqués, mais la capture montre la page telle quelle : vérifiez-la avant de l'envoyer. |
+| « leçon inaccessible (verrouillée ?) » | La leçon n'est pas encore ouverte (déblocage progressif) : elle sera reprise à un prochain lancement. |
+| « Impossible de lancer un navigateur » | `formation audio … --navigateur chrome`, ou `.venv\Scripts\python -m playwright install chromium`. |
+| « Impossible de charger Whisper » | Installez le composant Microsoft **Visual C++ Redistributable x64** : <https://aka.ms/vs/17/release/vc_redist.x64.exe>, puis relancez. |
+| « Le GPU est inutilisable » | Relancez `installer_windows.bat` (il installe les bibliothèques CUDA) et mettez à jour le pilote NVIDIA. Pour forcer un réglage : `--precision int8`. |
 | « vidéo protégée par DRM » | La vidéo ne peut pas être récupérée ; l'outil passe à la suivante. |
-| Transcription trop lente | Vérifiez que le message « GPU retenu » s'affiche. Sinon, installez `requirements-gpu.txt` et mettez à jour le pilote NVIDIA. En dernier recours : `--modele large-v3-turbo`. |
-| « Le GPU est inutilisable » | Installez `pip install -r requirements-gpu.txt`, mettez à jour le pilote NVIDIA, puis relancez. Pour forcer un réglage : `--precision int8`. |
+| « fermez-le s'il est ouvert (Excel…) » | Fermez `inventaire.csv` dans Excel, puis relancez. |
+| Les téléchargements échouent tous d'un coup | Mettez yt-dlp à jour : `.venv\Scripts\python -m pip install -U yt-dlp`. |
 
-Le profil du navigateur, qui garde votre connexion, est dans `~/.podia_formation/navigateur` (`C:\Users\<vous>\.podia_formation\navigateur` sous Windows). Supprimez ce dossier pour vous déconnecter complètement.
+Le profil du navigateur, qui garde votre connexion, est dans `C:\Users\<vous>\.podia_formation\navigateur`. Supprimez ce dossier pour vous déconnecter complètement.
 
 ---
 
 ## 6. Fonctionnement technique (pour les curieux)
 
-- Podia héberge ses vidéos chez **Cloudflare Stream** depuis 2024. Le lecteur est une iframe dont l'adresse contient un **jeton signé temporaire**. L'outil en déduit l'adresse du flux HLS, ou la capte au moment où le lecteur la demande, puis télécharge **la piste audio seule** avec [yt-dlp](https://github.com/yt-dlp/yt-dlp), juste après la visite de la leçon, avant que le jeton n'expire.
-- Les vidéos externes (YouTube, Vimeo, Loom, ancien Wistia) sont aussi prises en charge.
+- Podia héberge ses vidéos chez **Cloudflare Stream** depuis 2024. Le lecteur est une iframe dont l'adresse contient un **jeton signé temporaire**. L'outil en déduit l'adresse du flux HLS, ou la capte au moment où le lecteur la demande. Il télécharge alors **la piste audio seule** avec [yt-dlp](https://github.com/yt-dlp/yt-dlp), juste après la visite de la leçon, avant que le jeton n'expire. Un segment manquant fait échouer le téléchargement, qui est retenté, plutôt que de laisser un trou dans la transcription.
+- Les vidéos Vimeo, Loom et l'ancien Wistia sont aussi prises en charge. Les vidéos YouTube demandent en plus [Deno](https://deno.com) (`winget install DenoLand.Deno`).
 - La transcription utilise [faster-whisper](https://github.com/SYSTRAN/faster-whisper), une implémentation rapide de Whisper. L'audio est converti avec PyAV : aucun ffmpeg à installer.
-- Tests : `pip install -r requirements-dev.txt` puis `pytest`. Ils s'exécutent sur un faux site Podia local, avec un vrai navigateur et un vrai yt-dlp.
+- Tests : `pip install -r requirements-dev.txt` puis `pytest`. Ils s'exécutent sur un faux site Podia local, avec un vrai navigateur et un vrai yt-dlp. Indiquez le chemin d'un Chromium dans la variable `PODIA_TEST_CHROMIUM` pour les tests de bout en bout.

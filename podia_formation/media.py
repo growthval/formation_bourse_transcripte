@@ -247,7 +247,7 @@ def to_m4a(src: Path, dest: Path) -> Path:
                     with av.open(str(tmp), "w", format="mp4") as out:
                         (_copy_aac if mode == "copie" else _transcode_aac)(inp, a, out)
                 break
-            except (av.FFmpegError, ValueError):
+            except (av.FFmpegError, ValueError, AttributeError, TypeError):
                 # Horodatages non monotones (discontinuités HLS), etc. : on réencode.
                 tmp.unlink(missing_ok=True)
                 if mode == modes[-1]:

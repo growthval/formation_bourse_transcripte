@@ -471,8 +471,12 @@ def pdf_page_count(data: bytes) -> int:
 
 
 def redact(text: str) -> str:
-    """Masque jetons, e-mails et données de compte avant d'écrire un diagnostic."""
+    """Masque jetons, e-mails, signatures d'URL et données de compte avant d'écrire un diagnostic."""
     text = JWT_RE.sub("eyJ...(jeton-masque)", text)
+    text = re.sub(r"([?&](?:X-Amz-[\w-]+|Signature|Key-Pair-Id|Policy|Expires|token|sig|signature)=)[^&\"'\s<>]+",
+                  r"\1(masque)", text, flags=re.I)
+    text = re.sub(r'(<input[^>]*name="[^"]*token[^"]*"[^>]*value=")[^"]+', r"\1(masque)", text, flags=re.I)
+    text = re.sub(r'(<meta[^>]*content=")[^"]+("[^>]*name="csrf-token")', r"\1(masque)\2", text)
     text = re.sub(r'(name="(?:csrf-token|authenticity_token)"\s+(?:content|value)=")[^"]+', r"\1(masque)", text)
     text = re.sub(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", "(email-masque)", text)
     text = re.sub(r"cus_[A-Za-z0-9]+", "cus_(masque)", text)
@@ -521,6 +525,7 @@ class Crawler:
         self.page = None
         self._media_requests: list = []
         self._all_urls: list[str] = []
+        self.attachment_name_max = 70
 
     # -- cycle de vie --
     def __enter__(self) -> "Crawler":
@@ -880,7 +885,16 @@ class Crawler:
         if re.fullmatch(r"eyJ[\w.-]+", base.rsplit(".", 1)[0]) and name_hint:
             base = safe_filename(name_hint) + ("." + base.rsplit(".", 1)[1] if "." in base else "")
         dest_dir.mkdir(parents=True, exist_ok=True)
-        path = dest_dir / f"{stem} - {safe_filename(base, 70)}"
+        # Tronquer le nom sans perdre l'extension (sinon le PDF ne s'ouvre plus d'un double clic).
+        ext = Path(base).suffix.lower() if 1 < len(Path(base).suffix) <= 6 else ""
+        if not ext and ctype == "application/pdf":
+            ext = ".pdf"
+        name = safe_filename(Path(base).stem if ext else base, self.attachment_name_max)
+        path = dest_dir / f"{stem} - {name}{ext}"
+        n = 2
+        while path.exists() and path.read_bytes() != data:
+            path = dest_dir / f"{stem} - {name} ({n}){ext}"
+            n += 1
         path.write_bytes(data)
         pages = pdf_page_count(data) if (ctype == "application/pdf" or path.suffix.lower() == ".pdf") else 0
         return Attachment(url=url, name=base, path=str(path), pages=pages)

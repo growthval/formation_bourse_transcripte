@@ -61,6 +61,60 @@ def audio_done(lesson: Lesson, root: Path) -> bool:
     return bool(lesson.audio_files) and all((root / f).is_file() for f in lesson.audio_files)
 
 
+def apply_path_budget(root: Path, cr=None) -> None:
+    """Sous Windows (chemins limités à 260 caractères), raccourcit les noms si le dossier de sortie est profond."""
+    if sys.platform != "win32":
+        return
+    depth = len(str(root.resolve()))
+    Lesson.TITLE_MAX = max(25, min(80, 235 - depth - 45))
+    if cr is not None:
+        cr.attachment_name_max = max(15, min(70, 235 - depth - 25 - Lesson.TITLE_MAX))
+
+
+class Verrou:
+    """Empêche deux commandes de travailler en même temps sur le même dossier (inventaire écrasé)."""
+
+    def __init__(self, root: Path):
+        self.path = root / ".verrou"
+
+    @staticmethod
+    def _alive(pid: int) -> bool:
+        if sys.platform == "win32":
+            import ctypes
+            handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
+            if handle:
+                ctypes.windll.kernel32.CloseHandle(handle)
+                return True
+            return False
+        try:
+            import os
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
+    def __enter__(self):
+        import os
+
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        if self.path.is_file():
+            try:
+                pid, since = self.path.read_text(encoding="utf-8").split(";", 1)
+                if int(pid) != os.getpid() and self._alive(int(pid)):
+                    raise RuntimeError(f"Une autre commande travaille déjà sur « {self.path.parent} » (depuis {since}). "
+                                       f"Attendez qu'elle se termine, ou supprimez « {self.path} » si ce n'est pas le cas.")
+            except ValueError:
+                pass
+        self.path.write_text(f"{os.getpid()};{datetime.now():%d/%m %H:%M}", encoding="utf-8")
+        return self
+
+    def __exit__(self, *exc):
+        try:
+            self.path.unlink()
+        except OSError:
+            pass
+
+
 def crawl(args, want_audio: bool) -> Inventory:
     from .crawler import (Crawler, LessonUnavailable, NotLoggedIn, build_lessons, classify_lesson, course_title,
                           lesson_from_url, renumber)
@@ -71,6 +125,7 @@ def crawl(args, want_audio: bool) -> Inventory:
 
     with Crawler(browser=args.navigateur, headless=args.headless, profile=args.profil,
                  executable=args.chemin_navigateur, log=log) as cr:
+        apply_path_budget(root, cr)
         data = cr.open_course(args.url)
         fresh = build_lessons(data["items"], data["course"])
         if not fresh:
@@ -87,7 +142,7 @@ def crawl(args, want_audio: bool) -> Inventory:
         if inv.progress:
             log(f"Podia indique : {inv.progress[0]} sur {inv.progress[1]} terminés.")
             if inv.progress[1] != len(inv.lessons):
-                log(f"⚠️ Podia annonce {inv.progress[1]} éléments mais {len(inv.lessons)} ont été listés "
+                log(f"ATTENTION : Podia annonce {inv.progress[1]} éléments mais {len(inv.lessons)} ont été listés "
                     "(les leçons manquantes seront ajoutées si elles sont découvertes en chemin).")
         inv.save(inv_path)
 
@@ -155,7 +210,7 @@ def crawl(args, want_audio: bool) -> Inventory:
                             fetch_audio(lesson, root)
                         except Exception as exc2:
                             lesson.error = f"audio : {exc2}"[:300]
-                            log(f"    ⚠️ {lesson.error}")
+                            log(f"    ATTENTION : {lesson.error}")
                 time.sleep(1.0)      # rythme de navigation raisonnable
             except KeyboardInterrupt:
                 inv.save(inv_path)
@@ -166,10 +221,10 @@ def crawl(args, want_audio: bool) -> Inventory:
             except LessonUnavailable as exc:
                 lesson.visited = False           # retentée au prochain lancement
                 lesson.error = str(exc)[:300]
-                log(f"    ⚠️ {lesson.error}")
+                log(f"    ATTENTION : {lesson.error}")
             except Exception as exc:     # une leçon en échec ne bloque pas les autres
                 lesson.error = f"{type(exc).__name__}: {exc}"[:300]
-                log(f"    ⚠️ {lesson.error}")
+                log(f"    ATTENTION : {lesson.error}")
             inv.save(inv_path)
     return inv
 
@@ -207,7 +262,7 @@ def apply_visit(cr, lesson: Lesson, res, root: Path) -> None:
                 att.path = rel(Path(att.path), root)
                 attachments.append(att)
         except Exception as exc:
-            log(f"    ⚠️ fichier non téléchargé ({f['url']}) : {exc}")
+            log(f"    ATTENTION : fichier non téléchargé ({f['url']}) : {exc}")
     lesson.attachments = attachments
 
 
@@ -240,7 +295,7 @@ def fetch_audio(lesson: Lesson, root: Path) -> None:
             durations.append(d)
             if not source.duration_s:
                 source.duration_s = d
-        log(f"    ♪ audio : {path.name}" + (f" (+ {len(subs)} fichier(s) de sous-titres)" if subs else ""))
+        log(f"    audio : {path.name}" + (f" (+ {len(subs)} fichier(s) de sous-titres)" if subs else ""))
     lesson.audio_files = files
     if subtitles:
         lesson.subtitle_files = subtitles
@@ -249,7 +304,7 @@ def fetch_audio(lesson: Lesson, root: Path) -> None:
     lesson.drm = bool(drm) and drm == len(lesson.videos)
     if errors:
         lesson.error = "; ".join(errors)[:300]
-        log(f"    ⚠️ {lesson.error}")
+        log(f"    ATTENTION : {lesson.error}")
         if not lesson.drm and len(files) < len(lesson.videos) - drm:
             raise RuntimeError(lesson.error)
 
@@ -277,7 +332,7 @@ def cmd_sonde(args) -> None:
                                res.quiz_words, len(res.files))
         log(f"\nLeçon : {res.title or '?'} → type {kind}, {words} mots, {len(res.files)} fichier(s)")
         if res.player_seen and not res.videos:
-            log("⚠️ Un lecteur vidéo est présent mais aucun flux n'a été capté : envoyez le dossier diagnostic.")
+            log("ATTENTION : Un lecteur vidéo est présent mais aucun flux n'a été capté : envoyez le dossier diagnostic.")
         for v in res.videos:
             token = token_in(v.url)
             claims = jwt_claims(token) if token else {}
@@ -293,15 +348,15 @@ def cmd_sonde(args) -> None:
                 log(f"   {len(formats)} format(s), dont {len(audio_only)} audio seul : "
                     + ", ".join(str(f["format_id"]) for f in formats[:12]))
                 if any(f.get("has_drm") for f in formats):
-                    log("   ⚠️ DRM détecté : l'audio ne pourra pas être récupéré.")
+                    log("   ATTENTION : DRM détecté : l'audio ne pourra pas être récupéré.")
             except Exception as exc:
-                log(f"   ⚠️ yt-dlp ne lit pas ce flux : {exc}")
+                log(f"   ATTENTION : yt-dlp ne lit pas ce flux : {exc}")
         if res.videos and not args.sans_audio:
             probe = Lesson(index=1, lesson_id="sonde", url=args.url, title=res.title or "sonde",
                            module_index=0, module_id="", module_title="", lesson_index=0, videos=res.videos)
             fetch_audio(probe, root / "sonde")
             if probe.audio_files:
-                log(f"\n✅ Audio récupéré : {root / 'sonde' / probe.audio_files[0]}")
+                log(f"\nOK : Audio récupéré : {root / 'sonde' / probe.audio_files[0]}")
         log(f"\nDiagnostic (jetons masqués) : {root / 'diagnostic'}")
 
 
@@ -336,6 +391,7 @@ def cmd_transcrire(args) -> None:
     if not inv_path.is_file():
         raise SystemExit(f"{inv_path} introuvable : lancez d'abord la commande « audio ».")
     inv = Inventory.load(inv_path)
+    apply_path_budget(root)
     user_terms = read_terms(args.vocabulaire) if args.vocabulaire else []     # lu avant le long chargement du modèle
     only = parse_indices(args.lecons)
 
@@ -344,6 +400,14 @@ def cmd_transcrire(args) -> None:
             suffix = f" (partie {k})" if len(l.audio_files) > 1 else ""
             yield root / audio_rel, root / "transcriptions" / f"{l.stem}{suffix}"
 
+    # Transcriptions déjà présentes sur le disque (inventaire restauré, interruption…) : on les rattache.
+    for l in inv.lessons:
+        found = []
+        for audio, dest in parts(l):
+            if audio.is_file() and is_transcribed(dest, audio):
+                found += [rel(p, root) for p in (dest.with_name(dest.name + e) for e in (".txt", ".md", ".srt"))]
+        if found and len(found) == 3 * len(l.audio_files):
+            l.transcript_files = found
     todo = [l for l in inv.lessons if l.audio_files and (only is None or l.index in only)
             and (args.forcer or not all(a.is_file() and is_transcribed(d, a) for a, d in parts(l)))]
     if not any(l.audio_files for l in inv.lessons):
@@ -371,7 +435,7 @@ def cmd_transcrire(args) -> None:
         outputs: list[str] = []
         for audio, dest in parts(lesson):
             if not audio.is_file():
-                log(f"    ⚠️ fichier audio absent : {rel(audio, root)}")
+                log(f"    ATTENTION : fichier audio absent : {rel(audio, root)}")
                 continue
             if not args.forcer and is_transcribed(dest, audio):
                 outputs += [rel(p, root) for p in (dest.with_name(dest.name + e) for e in (".txt", ".md", ".srt"))]
@@ -384,7 +448,7 @@ def cmd_transcrire(args) -> None:
             except Exception as exc:
                 segments = None
                 if device == "cuda" and "memory" in str(exc).lower():
-                    log("    ⚠️ mémoire GPU insuffisante : passage sur le processeur.")
+                    log("    ATTENTION : mémoire GPU insuffisante : passage sur le processeur.")
                     try:
                         model, device = load_model(args.modele, "cpu", "", args.threads, log)
                         segments, duration = transcribe_file(model, audio, prompt, hotwords, log=log,
@@ -394,7 +458,7 @@ def cmd_transcrire(args) -> None:
                 if segments is None:
                     failures += 1
                     lesson.error = f"transcription : {type(exc).__name__}: {exc}"[:300]
-                    log(f"    ⚠️ {lesson.error} (leçon ignorée ; relancez après correction)")
+                    log(f"    ATTENTION : {lesson.error} (leçon ignorée ; relancez après correction)")
                     continue
             files = write_outputs(segments, dest, lesson.title, lesson.url, duration)
             outputs += [rel(p, root) for p in files]
@@ -405,7 +469,7 @@ def cmd_transcrire(args) -> None:
         inv.save(inv_path)
     write_reports(inv, root, args)
     if failures:
-        log(f"⚠️ {failures} partie(s) non transcrite(s) : voir la colonne « erreur » de inventaire.csv.")
+        log(f"ATTENTION : {failures} partie(s) non transcrite(s) : voir la colonne « erreur » de inventaire.csv.")
     log(f"Transcriptions dans « {root / 'transcriptions'} », document complet : {root / 'formation_complete.md'}")
 
 
@@ -443,7 +507,7 @@ def write_reports(inv: Inventory, root: Path, args) -> dict:
         try:
             write(root / name)
         except OSError as exc:
-            log(f"⚠️ {name} non écrit ({exc}) : fermez-le s'il est ouvert (Excel…) puis relancez.")
+            log(f"ATTENTION : {name} non écrit ({exc}) : fermez-le s'il est ouvert (Excel…) puis relancez.")
     return t
 
 
@@ -608,7 +672,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("sonde", help="vérifie sur UNE leçon que tout fonctionne (à lancer en premier)")
     common(sp); browser(sp)
     sp.add_argument("--sans-audio", action="store_true", help="ne pas télécharger l'audio de la leçon testée")
-    sp = sub.add_parser("inventaire", help="liste les leçons, mesure les vidéos et les textes (sans rien télécharger)")
+    sp = sub.add_parser("inventaire", help="liste les leçons, mesure les vidéos, récupère textes et PDF (sans l'audio)")
     common(sp); browser(sp); planning(sp)
     sp = sub.add_parser("audio", help="inventaire + téléchargement de l'audio des vidéos")
     common(sp); browser(sp); planning(sp)
@@ -627,39 +691,50 @@ def main(argv: list[str] | None = None) -> int:
             stream.reconfigure(errors="replace")
         except Exception:
             pass
+    if sys.version_info < (3, 10):
+        log("ERREUR : Python 3.10 ou plus récent est nécessaire (Python 3.12 conseillé). Voir README.md.")
+        return 1
+    if sys.version_info >= (3, 15):
+        log("ATTENTION : Python 3.15 n'est pas encore pris en charge par les bibliothèques de transcription ; "
+            "installez Python 3.12 (voir README.md).")
     args = build_parser().parse_args(argv)
     try:
-        if args.commande in ("inventaire", "audio", "tout"):
-            inv = crawl(args, want_audio=args.commande != "inventaire")
-            t = write_reports(inv, args.sortie, args)
-            print_totals(t, args.sortie)
-            # Planning refait seulement s'il n'existe pas ou si des options de planning sont données :
-            # un planning personnalisé (heure, jours…) n'est pas écrasé par une simple relance.
-            _, explicit = planning_params(args)
-            if explicit or not (args.sortie / "planning.json").is_file():
-                try:
-                    cmd_planning(args)       # avant la transcription : ne dépend que de l'inventaire
-                except Exception as exc:
-                    log(f"⚠️ Planning non généré : {exc}")
-            if args.commande == "tout":
-                cmd_transcrire(args)
-        elif args.commande == "sonde":
-            cmd_sonde(args)
-        elif args.commande == "transcrire":
-            cmd_transcrire(args)
-        elif args.commande == "planning":
-            cmd_planning(args)
+        with Verrou(args.sortie):
+            return run(args)
     except KeyboardInterrupt:
         log("\nInterrompu. Relancez la même commande : le travail déjà fait est conservé.")
         return 130
     except (RuntimeError, ValueError, OSError) as exc:     # NotLoggedIn est une RuntimeError
-        log(f"\n❌ {exc}")
+        log(f"\nERREUR : {exc}")
         return 1
     except Exception as exc:
         first = str(exc).strip().splitlines()[0] if str(exc).strip() else type(exc).__name__
         if type(exc).__module__.startswith("playwright"):
-            log(f"\n❌ Podia injoignable ou trop lent : vérifiez la connexion Internet puis relancez. ({first})")
+            log(f"\nERREUR : Podia injoignable ou trop lent : vérifiez la connexion Internet puis relancez. ({first})")
         else:
-            log(f"\n❌ Erreur inattendue ({type(exc).__name__}) : {first}")
+            log(f"\nERREUR inattendue ({type(exc).__name__}) : {first}")
         return 1
+
+
+def run(args) -> int:
+    if args.commande in ("inventaire", "audio", "tout"):
+        inv = crawl(args, want_audio=args.commande != "inventaire")
+        t = write_reports(inv, args.sortie, args)
+        print_totals(t, args.sortie)
+        # Planning refait seulement s'il n'existe pas ou si des options de planning sont données :
+        # un planning personnalisé (heure, jours…) n'est pas écrasé par une simple relance.
+        _, explicit = planning_params(args)
+        if explicit or not (args.sortie / "planning.json").is_file():
+            try:
+                cmd_planning(args)       # avant la transcription : ne dépend que de l'inventaire
+            except Exception as exc:
+                log(f"ATTENTION : planning non généré : {exc}")
+        if args.commande == "tout":
+            cmd_transcrire(args)
+    elif args.commande == "sonde":
+        cmd_sonde(args)
+    elif args.commande == "transcrire":
+        cmd_transcrire(args)
+    elif args.commande == "planning":
+        cmd_planning(args)
     return 0

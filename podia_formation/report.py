@@ -83,7 +83,7 @@ def write_summary(inv: Inventory, path: Path, video_factor: float = DEFAULT_VIDE
             if l.attachments:
                 bits.append(f"{len(l.attachments)} fichier(s)")
             if l.error:
-                bits.append(f"⚠️ {l.error}")
+                bits.append(f"erreur : {l.error}")
             lines.append(f"{l.lesson_index}. [{l.title}]({l.url}) : {' · '.join(bits)}")
         lines.append("")
     path.write_text("\n".join(lines), encoding="utf-8")

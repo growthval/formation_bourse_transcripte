@@ -101,3 +101,12 @@ def test_gpu_precision_order_for_small_cards():
     assert gpu_compute_types(all_types, 4096)[0] == "int8_float16"       # GTX 1650 (4 Go)
     assert gpu_compute_types(all_types, 12288)[0] == "float16"
     assert gpu_compute_types({"float32", "int8"}, None) == ["int8"]
+
+
+def test_real_sentences_mentioning_subscriptions_are_kept():
+    segs = [Segment(0, 3, "Pour accéder à la liste complète, abonnez-vous à la version Premium de Zonebourse."),
+            Segment(3, 5, "Merci d'avoir regardé, on passe au module suivant."),
+            Segment(5, 6, "Abonnez-vous !"), Segment(6, 7, "Merci d'avoir regardé.")]
+    kept = [s.text for s in clean_segments(segs)]
+    assert kept == ["Pour accéder à la liste complète, abonnez-vous à la version Premium de Zonebourse.",
+                    "Merci d'avoir regardé, on passe au module suivant."]
