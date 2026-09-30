@@ -396,6 +396,7 @@ class Crawler:
             viewport={"width": 1366, "height": 900}, accept_downloads=True,
             # Les service workers masqueraient certaines requêtes du lecteur.
             service_workers="block",
+            handle_sigint=False,      # Ctrl+C est géré par l'outil (sinon blocage à la fermeture)
             args=["--mute-audio", "--autoplay-policy=no-user-gesture-required",
                   "--disable-blink-features=AutomationControlled"],
             ignore_default_args=["--enable-automation"],
@@ -429,12 +430,21 @@ class Crawler:
         return self
 
     def __exit__(self, *exc) -> None:
+        # Après un Ctrl+C, la boucle interne de Playwright peut être morte : fermer bloquerait.
+        fiber = getattr(self.context, "_dispatcher_fiber", None) or getattr(self._pw, "_dispatcher_fiber", None)
+        if fiber is not None and getattr(fiber, "dead", False):
+            return
         try:
             if self.context:
                 self.context.close()
+        except Exception:
+            pass
         finally:
-            if self._pw:
-                self._pw.stop()
+            try:
+                if self._pw:
+                    self._pw.stop()
+            except Exception:
+                pass
 
     def _on_request(self, request) -> None:
         url = request.url

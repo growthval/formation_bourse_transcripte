@@ -5,8 +5,8 @@ import pytest
 
 from podia_formation.models import Attachment, Inventory, Lesson
 from podia_formation.planning import (
-    balanced_partition,
     build_sessions,
+    minimum_partition,
     parse_days,
     session_duration,
     write_ics,
@@ -68,24 +68,32 @@ def test_study_minutes_rules():
     assert lesson(1, 1, "article", reading=4, pages=3).study_minutes() == 10
 
 
-def test_balanced_partition_is_contiguous_and_complete():
-    weights = [30, 5, 5, 50, 10, 10, 40, 20, 20, 20]
-    groups = balanced_partition(weights, 4)
-    assert len(groups) == 4
-    assert [i for g in groups for i in g] == list(range(len(weights)))
+def test_minimum_partition_every_block_reaches_the_minimum():
+    import random
+
+    weights = [112, 5, 5, 5, 60, 60]
+    groups = minimum_partition(weights, 60)
     sums = [sum(weights[i] for i in g) for g in groups]
-    assert max(sums) - min(sums) <= 30
-    assert balanced_partition([], 3) == []
-    assert balanced_partition([10, 10], 5) == [[0], [1]]
+    assert [i for g in groups for i in g] == list(range(len(weights)))
+    assert min(sums) >= 60 and len(groups) == 3
+    assert minimum_partition([], 60) == []
+    assert minimum_partition([10, 20], 60) == [[0, 1]]          # tout tient en une séance
+    rng = random.Random(1)
+    for _ in range(200):
+        w = [rng.choice([3, 5, 6, 8, 12, 18, 25, 40, 70]) for _ in range(rng.randint(1, 60))]
+        g = minimum_partition(w, 60)
+        assert [i for b in g for i in b] == list(range(len(w)))
+        if sum(w) >= 60:
+            assert min(sum(w[i] for i in b) for b in g) >= 60
 
 
 def test_build_sessions_at_least_target_on_average_and_respects_days():
     inv = course()
     total = sum(l.study_minutes() for l in inv.lessons)
     sessions = build_sessions(inv, date(2026, 10, 1), "20:00", 60, parse_days("tous"))
-    assert len(sessions) == int(total // 60)
+    assert 1 <= len(sessions) <= int(total // 60)            # autant de séances que possible, chacune >= 1 h
     assert sum(s.minutes for s in sessions) == pytest.approx(total, abs=0.5)
-    assert sum(s.minutes for s in sessions) / len(sessions) >= 60
+    assert min(s.minutes for s in sessions) >= 60
     assert [s.day for s in sessions[:3]] == ["2026-10-01", "2026-10-02", "2026-10-03"]
     covered = [l["index"] for s in sessions for l in s.lessons]
     assert covered == [l.index for l in inv.lessons]
@@ -99,8 +107,23 @@ def test_build_sessions_at_least_target_on_average_and_respects_days():
 def test_parse_days():
     assert parse_days("lun,mer,ven") == [0, 2, 4]
     assert parse_days("Lundi,Dimanche") == [0, 6]
-    with pytest.raises(ValueError):
-        parse_days("xyz")
+    assert parse_days("lun-ven") == [0, 1, 2, 3, 4]
+    assert parse_days("lundi au vendredi") == [0, 4]
+    assert parse_days("ven-lun") == [0, 4, 5, 6]
+    assert parse_days("week-end") == [5, 6]
+    assert parse_days("lun mar") == [0, 1]
+    for bad in ("xyz", "lun,foo"):
+        with pytest.raises(ValueError):
+            parse_days(bad)
+
+
+def test_video_without_duration_gets_an_estimate():
+    inv = course()
+    video = next(l for l in inv.lessons if l.kind == "video")
+    video.video_duration_s = None                   # vidéo non mesurée
+    sessions = build_sessions(inv, date(2026, 10, 1))
+    first = next(l for s in sessions for l in s.lessons if l["index"] == video.index)
+    assert first["estime"] and first["minutes"] == pytest.approx(18 * 1.25) and "estimée" in first["libelle"]
 
 
 def test_ics_is_valid_and_uses_paris_time(tmp_path: Path):
@@ -113,6 +136,7 @@ def test_ics_is_valid_and_uses_paris_time(tmp_path: Path):
     assert all(len(line) <= 75 for line in raw.split(b"\r\n"))
     text = raw.decode("utf-8")
     assert "DTSTART:20261024T180000Z" in text     # heure d'été (UTC+2)
+    assert "SEQUENCE:" in text and "UID:" in text
     assert "DTSTART:20261025T190000Z" in text     # passage à l'heure d'hiver le 25 octobre (UTC+1)
     assert text.count("BEGIN:VEVENT") == len(sessions)
     assert session_duration(sessions[0], 60) >= 60

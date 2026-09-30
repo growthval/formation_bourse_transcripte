@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -94,7 +95,14 @@ class Inventory:
         text = JWT_RE.sub("eyJ-jeton-masque", json.dumps(asdict(self), ensure_ascii=False, indent=2))
         tmp = path.with_name(path.name + ".tmp")
         tmp.write_text(text, encoding="utf-8")
-        tmp.replace(path)
+        for attempt in range(6):          # antivirus / OneDrive peuvent verrouiller le fichier un instant
+            try:
+                tmp.replace(path)
+                return
+            except PermissionError:
+                if attempt == 5:
+                    raise
+                time.sleep(0.5)
 
     @classmethod
     def load(cls, path: Path) -> "Inventory":

@@ -95,10 +95,24 @@ def test_full_pipeline(site, tmp_path, monkeypatch):
     full = (out / "formation_complete.md").read_text(encoding="utf-8")
     assert "Parlons des actions." in full and "La diversification réduit le risque" in full
 
-    # 4) planning seul, en semaine
-    assert cli.main(["planning", "--sortie", str(out), "--debut", "2026-10-03", "--jours", "semaine"]) == 0
+    # 4) planning seul, en semaine, à 18h30
+    assert cli.main(["planning", "--sortie", str(out), "--debut", "03/10/2026", "--jours", "lun-ven",
+                     "--heure", "18h30"]) == 0
     plan = json.loads((out / "planning.json").read_text(encoding="utf-8"))
-    assert plan[0]["day"] == "2026-10-05"      # samedi 3 -> lundi 5
+    assert plan["seances"][0]["day"] == "2026-10-05"      # samedi 3 -> lundi 5
+    assert plan["parametres"]["heure"] == "18:30"
+    # 5) une relance de l'inventaire ne remplace pas ce planning personnalisé
+    assert cli.main(["inventaire", site.lesson_url("1002"), *common]) == 0
+    again = json.loads((out / "planning.json").read_text(encoding="utf-8"))
+    assert again["parametres"]["heure"] == "18:30" and again["seances"][0]["day"] == "2026-10-05"
+
+
+def test_invalid_planning_option_is_rejected_before_any_work(tmp_path, capsys):
+    from podia_formation import cli
+
+    with pytest.raises(SystemExit):
+        cli.main(["tout", "https://x.podia.com/p/courses/c", "--sortie", str(tmp_path), "--heure", "25h"])
+    assert "heure invalide" in capsys.readouterr().err
 
 
 def test_sonde(site, tmp_path):

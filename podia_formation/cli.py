@@ -45,8 +45,15 @@ def merge_listing(existing: Inventory | None, fresh: list[Lesson]) -> list[Lesso
             merged.append(old)
         else:
             merged.append(lesson)
+    # Leçons absentes de la barre latérale (découvertes via « Continuer ») : remises à leur place,
+    # juste après la leçon qui les précédait lors du lancement précédent.
     fresh_ids = {l.lesson_id for l in fresh}
-    merged += [l for l in existing.lessons if l.lesson_id not in fresh_ids]   # découvertes auparavant
+    prev = None
+    for old in existing.lessons:
+        if old.lesson_id not in fresh_ids:
+            pos = next((k + 1 for k, l in enumerate(merged) if l.lesson_id == prev), 0 if prev is None else len(merged))
+            merged.insert(pos, old)
+        prev = old.lesson_id
     return merged
 
 
@@ -95,6 +102,7 @@ def crawl(args, want_audio: bool) -> Inventory:
                 continue
             log(f"[{lesson.index}/{len(inv.lessons)}] M{lesson.module_index} · {lesson.title}")
             try:
+                prev_kind, prev_duration = lesson.kind, lesson.video_duration_s
                 res = cr.visit(lesson.url)
                 apply_visit(cr, lesson, res, root)
                 lesson.kind = classify_lesson(lesson.title, lesson.word_count, len(lesson.videos),
@@ -107,6 +115,8 @@ def crawl(args, want_audio: bool) -> Inventory:
                 lesson.stream_missed = missed          # sera retentée au prochain lancement
                 if missed:
                     lesson.error = "lecteur vidéo repéré mais flux non capté"
+                    if prev_kind == "video":           # garder ce qu'on savait déjà de cette vidéo
+                        lesson.kind, lesson.video_duration_s = "video", prev_duration
                 # Diagnostic : demandé (3 premières leçons) ou automatique en cas d'échec (5 au plus).
                 if (args.diagnostic and diag_budget > 0) or (missed and auto_diag > 0):
                     cr.write_diagnostic(root / "diagnostic", lesson.stem, res)
@@ -122,12 +132,15 @@ def crawl(args, want_audio: bool) -> Inventory:
                     summary.append(f"{lesson.word_count} mots")
                 log("    → " + ", ".join(summary))
                 # Leçon suivante non listée (module replié dans la barre latérale, par exemple).
-                nxt = lesson_from_url(res.next_url, lesson.module_title) if res.next_url else None
+                nxt = lesson_from_url(res.next_url) if res.next_url else None
+                if nxt:     # titre du module de la leçon découverte (pas forcément celui de la leçon courante)
+                    nxt.module_title = next((l.module_title for l in inv.lessons if l.module_id == nxt.module_id),
+                                            nxt.module_title)
                 if nxt and all(l.lesson_id != nxt.lesson_id for l in inv.lessons):
                     log(f"    + leçon découverte via « Continuer » : {nxt.url}")
                     inv.lessons.insert(i, nxt)
                     renumber(inv.lessons)
-                if want_audio and lesson.kind == "video" and (not lesson.drm or args.forcer):
+                if want_audio and lesson.kind == "video" and lesson.videos and (not lesson.drm or args.forcer):
                     try:
                         fetch_audio(lesson, root)
                     except Exception as exc:
@@ -291,11 +304,16 @@ def parse_indices(value: str | None) -> set[int] | None:
     out: set[int] = set()
     for part in value.split(","):
         part = part.strip()
-        if "-" in part:
-            a, b = part.split("-", 1)
-            out.update(range(int(a), int(b) + 1))
-        elif part:
-            out.add(int(part))
+        try:
+            if "-" in part:
+                a, b = (int(x) for x in part.split("-", 1))
+                if b < a:
+                    raise ValueError
+                out.update(range(a, b + 1))
+            elif part:
+                out.add(int(part))
+        except ValueError:
+            raise ValueError(f"--lecons : « {part} » n'est pas un numéro ou une plage valide (ex. 2,5,10-12)") from None
     return out
 
 
@@ -318,8 +336,12 @@ def cmd_transcrire(args) -> None:
 
     todo = [l for l in inv.lessons if l.audio_files and (only is None or l.index in only)
             and (args.forcer or not all(a.is_file() and is_transcribed(d, a) for a, d in parts(l)))]
+    if not any(l.audio_files for l in inv.lessons):
+        log("Aucun audio téléchargé : lancez d'abord la commande « audio ».")
+        return
     if not todo:
-        log("Toutes les transcriptions sont déjà faites.")
+        log("Aucune leçon correspondant à --lecons." if only is not None and not any(
+            l.index in only and l.audio_files for l in inv.lessons) else "Toutes les transcriptions sont déjà faites.")
         write_reports(inv, root, args)
         return
     total_audio = sum(l.video_duration_s or 0 for l in todo)
@@ -350,11 +372,16 @@ def cmd_transcrire(args) -> None:
             except KeyboardInterrupt:
                 raise
             except Exception as exc:
+                segments = None
                 if device == "cuda" and "memory" in str(exc).lower():
                     log("    ⚠️ mémoire GPU insuffisante : passage sur le processeur.")
-                    model, device = load_model(args.modele, "cpu", "", args.threads, log)
-                    segments, duration = transcribe_file(model, audio, prompt, hotwords, log=log, beam_size=args.beam)
-                else:
+                    try:
+                        model, device = load_model(args.modele, "cpu", "", args.threads, log)
+                        segments, duration = transcribe_file(model, audio, prompt, hotwords, log=log,
+                                                             beam_size=args.beam)
+                    except Exception as exc2:
+                        exc = exc2
+                if segments is None:
                     failures += 1
                     lesson.error = f"transcription : {type(exc).__name__}: {exc}"[:300]
                     log(f"    ⚠️ {lesson.error} (leçon ignorée ; relancez après correction)")
@@ -363,6 +390,8 @@ def cmd_transcrire(args) -> None:
             outputs += [rel(p, root) for p in files]
         if outputs:
             lesson.transcript_files = outputs
+            if lesson.error.startswith("transcription") and len(outputs) == 3 * len(lesson.audio_files):
+                lesson.error = ""
         inv.save(inv_path)
     write_reports(inv, root, args)
     if failures:
@@ -372,14 +401,39 @@ def cmd_transcrire(args) -> None:
 
 # --- planning / rapports -------------------------------------------------------
 
-def write_reports(inv: Inventory, root: Path, args) -> dict:
-    from .report import write_csv, write_full_document, write_summary
+PLANNING_DEFAULTS = {"debut": None, "heure": "20:00", "minutes": 60.0, "jours": "tous", "fuseau": "Europe/Paris",
+                     "facteur_video": DEFAULT_VIDEO_FACTOR, "a_partir_de": 1}
 
-    factor = getattr(args, "facteur_video", DEFAULT_VIDEO_FACTOR)
-    minutes = getattr(args, "minutes", 60)
-    t = write_summary(inv, root / "resume.md", factor, minutes)
-    write_csv(inv, root / "inventaire.csv", factor)
-    write_full_document(inv, root, root / "formation_complete.md")
+
+def planning_params(args) -> tuple[dict, bool]:
+    """Réglages du planning : ceux donnés en option, sinon ceux du planning précédent, sinon les défauts.
+
+    Renvoie aussi True si au moins une option a été donnée explicitement.
+    """
+    from .planning import read_params
+
+    saved = read_params(args.sortie / "planning.json")
+    params, explicit = {}, False
+    for key, default in PLANNING_DEFAULTS.items():
+        value = getattr(args, key, None)
+        explicit |= value is not None
+        params[key] = value if value is not None else saved.get(key, default)
+    return params, explicit
+
+
+def write_reports(inv: Inventory, root: Path, args) -> dict:
+    from .report import totals, write_csv, write_full_document, write_summary
+
+    params, _ = planning_params(args)
+    factor, minutes = params["facteur_video"], params["minutes"]
+    t = totals(inv, factor)
+    for name, write in (("resume.md", lambda p: write_summary(inv, p, factor, minutes)),
+                        ("inventaire.csv", lambda p: write_csv(inv, p, factor)),
+                        ("formation_complete.md", lambda p: write_full_document(inv, root, p))):
+        try:
+            write(root / name)
+        except OSError as exc:
+            log(f"⚠️ {name} non écrit ({exc}) : fermez-le s'il est ouvert (Excel…) puis relancez.")
     return t
 
 
@@ -391,17 +445,25 @@ def cmd_planning(args) -> None:
     if not inv_path.is_file():
         raise SystemExit(f"{inv_path} introuvable : lancez d'abord la commande « inventaire ».")
     inv = Inventory.load(inv_path)
-    start = date.fromisoformat(args.debut) if args.debut else date.today() + timedelta(days=1)
-    sessions = build_sessions(inv, start, args.heure, args.minutes, parse_days(args.jours),
-                              args.facteur_video, args.a_partir_de)
+    params, _ = planning_params(args)
+    start = date.fromisoformat(params["debut"]) if params["debut"] else date.today() + timedelta(days=1)
+    params["debut"] = start.isoformat()
+    sessions = build_sessions(inv, start, params["heure"], params["minutes"], parse_days(params["jours"]),
+                              params["facteur_video"], params["a_partir_de"])
+    if not sessions:
+        log(f"Aucune leçon à planifier à partir de la n° {params['a_partir_de']} "
+            f"(la formation en compte {len(inv.lessons)}).")
+        return
     title = inv.course_title or "Formation"
-    write_markdown(sessions, root / "planning.md", title, args.minutes)
-    write_json(sessions, root / "planning.json")
-    write_ics(sessions, root / "planning.ics", title, args.fuseau, args.minutes, inv.course_url)
-    if sessions:
-        log(f"Planning : {plural(len(sessions), 'séance')} du {sessions[0].day} au {sessions[-1].day} "
-            f"({format_minutes(sum(s.minutes for s in sessions))} d'étude estimée).")
-        log(f"→ {root / 'planning.md'} et {root / 'planning.ics'} (à importer dans votre agenda).")
+    write_markdown(sessions, root / "planning.md", title, params["minutes"])
+    write_json(sessions, root / "planning.json", params)
+    write_ics(sessions, root / "planning.ics", title, params["fuseau"], params["minutes"], inv.course_url)
+    estimated = sum(1 for s in sessions for l in s.lessons if l.get("estime"))
+    log(f"Planning : {plural(len(sessions), 'séance')} du {sessions[0].day} au {sessions[-1].day}, "
+        f"à {params['heure']} ({format_minutes(sum(s.minutes for s in sessions))} d'étude estimée).")
+    if estimated:
+        log(f"   ({plural(estimated, 'vidéo')} sans durée mesurée : durée estimée dans le planning.)")
+    log(f"→ {root / 'planning.md'} et {root / 'planning.ics'} (à importer dans votre agenda).")
 
 
 def print_totals(t: dict, root: Path) -> None:
@@ -417,6 +479,73 @@ def print_totals(t: dict, root: Path) -> None:
 
 
 # --- arguments ------------------------------------------------------------------
+
+def _arg_error(msg: str):
+    raise argparse.ArgumentTypeError(msg)
+
+
+def arg_date(value: str) -> str:
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+        try:
+            return datetime.strptime(value.strip(), fmt).date().isoformat()
+        except ValueError:
+            continue
+    _arg_error(f"date invalide « {value} » (ex. 2026-10-01 ou 01/10/2026)")
+
+
+def arg_time(value: str) -> str:
+    import re
+
+    m = re.fullmatch(r"\s*(\d{1,2})\s*(?:[:hH]\s*(\d{2})?)?\s*", value)
+    if not m or int(m.group(1)) > 23 or int(m.group(2) or 0) > 59:
+        _arg_error(f"heure invalide « {value} » (ex. 20:00 ou 20h30)")
+    return f"{int(m.group(1)):02d}:{int(m.group(2) or 0):02d}"
+
+
+def arg_minutes(value: str) -> float:
+    try:
+        v = float(value.replace(",", "."))
+    except ValueError:
+        v = 0
+    if not 5 <= v <= 600:
+        _arg_error(f"durée invalide « {value} » (entre 5 et 600 minutes)")
+    return v
+
+
+def arg_factor(value: str) -> float:
+    try:
+        v = float(value.replace(",", "."))
+    except ValueError:
+        v = 0
+    if not 0.5 <= v <= 5:
+        _arg_error(f"facteur invalide « {value} » (entre 0,5 et 5)")
+    return v
+
+
+def arg_positive_int(value: str) -> int:
+    if not value.strip().isdigit() or int(value) < 1:
+        _arg_error(f"nombre invalide « {value} »")
+    return int(value)
+
+
+def arg_days(value: str) -> str:
+    from .planning import parse_days
+
+    try:
+        parse_days(value)
+    except ValueError as exc:
+        _arg_error(str(exc))
+    return value
+
+
+def arg_zone(value: str) -> str:
+    try:
+        from zoneinfo import ZoneInfo
+        ZoneInfo(value)
+    except Exception:
+        _arg_error(f"fuseau horaire inconnu « {value} » (ex. Europe/Paris ; sous Windows : pip install tzdata)")
+    return value
+
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -454,14 +583,17 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--lecons", default=None, help="seulement ces leçons (n° de l'inventaire), ex. « 2,5,10-12 »")
 
     def planning(sp):
-        sp.add_argument("--debut", default=None, help="date de la première séance AAAA-MM-JJ (défaut : demain)")
-        sp.add_argument("--heure", default="20:00", help="heure de début des séances (défaut : 20:00)")
-        sp.add_argument("--minutes", type=float, default=60, help="durée minimale d'une séance (défaut : 60)")
-        sp.add_argument("--jours", default="tous", help="tous, semaine, ou liste : lun,mar,mer,jeu,ven,sam,dim")
-        sp.add_argument("--fuseau", default="Europe/Paris", help="fuseau horaire (défaut : Europe/Paris)")
-        sp.add_argument("--facteur-video", type=float, default=DEFAULT_VIDEO_FACTOR,
+        sp.add_argument("--debut", type=arg_date, default=None,
+                        help="date de la première séance, AAAA-MM-JJ ou JJ/MM/AAAA (défaut : demain)")
+        sp.add_argument("--heure", type=arg_time, default=None, help="heure de début des séances, ex. 20:00 ou 20h30 (défaut : 20:00)")
+        sp.add_argument("--minutes", type=arg_minutes, default=None, help="durée minimale d'une séance en minutes (défaut : 60)")
+        sp.add_argument("--jours", type=arg_days, default=None,
+                        help="tous (défaut), semaine, week-end, lun,mer,ven, lun-ven…")
+        sp.add_argument("--fuseau", type=arg_zone, default=None, help="fuseau horaire (défaut : Europe/Paris)")
+        sp.add_argument("--facteur-video", type=arg_factor, default=None,
                         help="temps d'étude par minute de vidéo (défaut : 1.25 pour pauses et notes)")
-        sp.add_argument("--a-partir-de", type=int, default=1, help="n° de la première leçon à planifier (défaut : 1)")
+        sp.add_argument("--a-partir-de", type=arg_positive_int, default=None,
+                        help="n° de la première leçon à planifier (défaut : 1)")
 
     sp = sub.add_parser("sonde", help="vérifie sur UNE leçon que tout fonctionne (à lancer en premier)")
     common(sp); browser(sp)
@@ -491,7 +623,14 @@ def main(argv: list[str] | None = None) -> int:
             inv = crawl(args, want_audio=args.commande != "inventaire")
             t = write_reports(inv, args.sortie, args)
             print_totals(t, args.sortie)
-            cmd_planning(args)          # avant la transcription : le planning ne dépend que de l'inventaire
+            # Planning refait seulement s'il n'existe pas ou si des options de planning sont données :
+            # un planning personnalisé (heure, jours…) n'est pas écrasé par une simple relance.
+            _, explicit = planning_params(args)
+            if explicit or not (args.sortie / "planning.json").is_file():
+                try:
+                    cmd_planning(args)       # avant la transcription : ne dépend que de l'inventaire
+                except Exception as exc:
+                    log(f"⚠️ Planning non généré : {exc}")
             if args.commande == "tout":
                 cmd_transcrire(args)
         elif args.commande == "sonde":
@@ -505,5 +644,12 @@ def main(argv: list[str] | None = None) -> int:
         return 130
     except (RuntimeError, ValueError, OSError) as exc:     # NotLoggedIn est une RuntimeError
         log(f"\n❌ {exc}")
+        return 1
+    except Exception as exc:
+        first = str(exc).strip().splitlines()[0] if str(exc).strip() else type(exc).__name__
+        if type(exc).__module__.startswith("playwright"):
+            log(f"\n❌ Podia injoignable ou trop lent : vérifiez la connexion Internet puis relancez. ({first})")
+        else:
+            log(f"\n❌ Erreur inattendue ({type(exc).__name__}) : {first}")
         return 1
     return 0

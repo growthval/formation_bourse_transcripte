@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import csv
-import math
+import re
 from pathlib import Path
 
 from .media import audio_duration
@@ -13,12 +13,20 @@ from .text import format_duration, format_minutes, module_label, plural
 
 KIND_LABELS = {"video": "Vidéo", "article": "Article", "quiz": "Quiz", "fichier": "Fiche / fichier",
                "vide": "Vide", "inconnu": "Non visitée"}
+KIND_PLURALS = {"video": ("vidéo", "vidéos"), "article": ("article", "articles"), "quiz": ("quiz", "quiz"),
+                "fichier": ("fiche", "fiches"), "vide": ("page vide", "pages vides"),
+                "inconnu": ("non visitée", "non visitées")}
+
+
+def kind_count(kind: str, n: int) -> str:
+    one, many = KIND_PLURALS.get(kind, (kind, kind))
+    return f"{n} {many if n > 1 else one}"
 
 
 def totals(inv: Inventory, video_factor: float = DEFAULT_VIDEO_FACTOR) -> dict:
     lessons = inv.lessons
     video_s = sum(l.video_duration_s or 0 for l in lessons)
-    missing = [l for l in lessons if l.kind == "video" and not l.video_duration_s]
+    missing = [l for l in lessons if (l.kind == "video" or l.stream_missed) and not l.video_duration_s]
     reading = sum(l.reading_min for l in lessons)
     quiz = sum(l.quiz_minutes() for l in lessons)
     pdf_pages = sum(a.pages for l in lessons for a in l.attachments)
@@ -33,24 +41,27 @@ def totals(inv: Inventory, video_factor: float = DEFAULT_VIDEO_FACTOR) -> dict:
 
 def write_summary(inv: Inventory, path: Path, video_factor: float = DEFAULT_VIDEO_FACTOR,
                   daily_minutes: float = 60) -> dict:
+    from .planning import count_sessions
+
     t = totals(inv, video_factor)
-    sessions = max(1, math.floor(t["etude_min"] / daily_minutes)) if t["etude_min"] else 0
+    sessions = count_sessions(inv, daily_minutes, video_factor) if t["etude_min"] else 0
     lines = [f"# {inv.course_title or 'Formation'} : inventaire", "",
              f"Source : {inv.course_url}  ", f"Généré le : {inv.generated_at}", ""]
     if inv.progress:
         lines += [f"Progression affichée par Podia : {inv.progress[0]} sur {inv.progress[1]} terminés.", ""]
     lines += ["## En bref", "",
               "| | |", "|---|---|",
-              f"| Leçons | {t['lecons']} ({', '.join(f'{n} {KIND_LABELS.get(k, k).lower()}' for k, n in sorted(t['types'].items()))}) |",
+              f"| Leçons | {t['lecons']} ({', '.join(kind_count(k, n) for k, n in sorted(t['types'].items()))}) |",
               f"| **Vidéo (durée réelle)** | **{format_duration(t['video_s'])}** |",
               f"| Lecture des articles (~200 mots/min) | {format_minutes(t['lecture_min'])} |",
               f"| Quiz (estimation) | {format_minutes(t['quiz_min'])} |",
               f"| Fiches PDF | {t['pages_pdf']} pages |",
               f"| **Temps d'étude total estimé** (vidéo × {video_factor:g} pour pauses et notes) | **{format_minutes(t['etude_min'])}** |",
-              f"| À raison de {format_minutes(daily_minutes)} par jour | **{plural(sessions, 'séance')}** |",
+              f"| À raison d'au moins {format_minutes(daily_minutes)} par jour | **{plural(sessions, 'séance')}** |",
               ""]
     if t["videos_sans_duree"]:
-        lines += [f"> {t['videos_sans_duree']} vidéo(s) sans durée connue : le total vidéo est donc sous-estimé.", ""]
+        lines += [f"> {t['videos_sans_duree']} vidéo(s) sans durée connue : le total vidéo est sous-estimé "
+                  "(le planning leur attribue une durée estimée).", ""]
     if t["erreurs"]:
         lines += [f"> {t['erreurs']} leçon(s) en erreur (voir la colonne « erreur » de inventaire.csv).", ""]
     lines += ["## Par module", "", "| Module | Leçons | Vidéo | Lecture | Étude estimée |", "|---|---|---|---|---|"]
@@ -84,17 +95,21 @@ def write_csv(inv: Inventory, path: Path, video_factor: float = DEFAULT_VIDEO_FA
     def num(x: float) -> str:
         return f"{x:.1f}".replace(".", ",")
 
+    def txt(value: str) -> str:
+        # Excel prendrait « -50 % : … » ou « =… » pour une formule.
+        return "'" + value if value[:1] in ("=", "+", "-", "@") else value
+
     with path.open("w", encoding="utf-8-sig", newline="") as fh:
         w = csv.writer(fh, delimiter=";")
         w.writerow(["n°", "module", "titre module", "leçon", "titre", "type", "durée vidéo (min)",
                     "mots", "lecture (min)", "quiz (min)", "pages PDF", "étude estimée (min)",
                     "audio", "transcription", "url", "erreur"])
         for l in inv.lessons:
-            w.writerow([l.index, l.module_index, l.module_title, l.lesson_index, l.title, l.kind,
+            w.writerow([l.index, l.module_index, txt(l.module_title), l.lesson_index, txt(l.title), l.kind,
                         num((l.video_duration_s or 0) / 60), l.word_count, num(l.reading_min),
                         num(l.quiz_minutes()), sum(a.pages for a in l.attachments),
                         num(l.study_minutes(video_factor)), " | ".join(l.audio_files),
-                        " | ".join(l.transcript_files), l.url, l.error])
+                        " | ".join(l.transcript_files), l.url, txt(l.error)])
 
 
 def write_full_document(inv: Inventory, root: Path, path: Path) -> None:
@@ -109,6 +124,9 @@ def write_full_document(inv: Inventory, root: Path, path: Path) -> None:
                 if p.is_file():
                     body = p.read_text(encoding="utf-8").split("\n", 2)
                     text = body[2] if len(body) > 2 and body[0].startswith("# ") else "\n".join(body)
+                    text = re.sub(r"\n*Source : \S+\s*$", "", text.strip())
+                    # Les titres de l'article passent sous le niveau « ### leçon » du document.
+                    text = re.sub(r"(?m)^(#{1,4}) ", lambda m: "#" * min(len(m.group(1)) + 3, 6) + " ", text)
                     lines += [text.strip(), ""]
             txts = [root / t for t in l.transcript_files if t.endswith(".txt") and (root / t).is_file()]
             for k, t in enumerate(txts, start=1):

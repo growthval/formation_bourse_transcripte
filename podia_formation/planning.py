@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
@@ -19,46 +20,71 @@ MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août
 
 
 def parse_days(value: str) -> list[int]:
-    """'tous' ou 'lun,mar,mer' -> numéros de jours (0 = lundi)."""
+    """'tous', 'semaine', 'week-end', 'lun,mer,ven', 'lun-ven', 'lundi mardi'… -> jours (0 = lundi)."""
     value = (value or "tous").strip().lower()
-    if value in ("tous", "all", "7/7"):
-        return list(range(7))
-    if value in ("semaine", "5/7"):
-        return list(range(5))
-    days = sorted({JOURS[d.strip()[:3]] for d in value.split(",") if d.strip()[:3] in JOURS})
-    if not days:
-        raise ValueError(f"Jours non reconnus : {value!r} (exemple : lun,mar,mer,jeu,ven)")
-    return days
+    named = {"tous": range(7), "all": range(7), "7/7": range(7), "semaine": range(5), "5/7": range(5),
+             "week-end": (5, 6), "weekend": (5, 6), "we": (5, 6)}
+    if value in named:
+        return list(named[value])
+    days: set[int] = set()
+    bad: list[str] = []
+    for token in (t for t in re.split(r"[\s,;/]+", value) if t):
+        if token in ("au", "et", "à"):
+            continue
+        if token in named:
+            days.update(named[token])
+            continue
+        if "-" in token:
+            a, b = token.split("-", 1)
+            if a[:3] in JOURS and b[:3] in JOURS:
+                i, j = JOURS[a[:3]], JOURS[b[:3]]
+                days.update((i + k) % 7 for k in range((j - i) % 7 + 1))    # « ven-lun » passe par le week-end
+                continue
+        if token[:3] in JOURS:
+            days.add(JOURS[token[:3]])
+        else:
+            bad.append(token)
+    if bad or not days:
+        raise ValueError(f"Jours non reconnus : {', '.join(bad) or value} "
+                         "(exemples : tous, semaine, week-end, lun,mer,ven, lun-ven)")
+    return sorted(days)
 
 
 def french_date(d: date) -> str:
     return f"{JOURS_NOMS[d.weekday()]} {d.day} {MOIS[d.month - 1]} {d.year}"
 
 
-def balanced_partition(weights: list[float], parts: int) -> list[list[int]]:
-    """Découpe une suite (ordre conservé) en `parts` blocs aussi égaux que possible.
+def minimum_partition(weights: list[float], minimum: float) -> list[list[int]]:
+    """Découpe une suite (ordre conservé) en blocs d'au moins `minimum`, le plus nombreux et le plus réguliers possible.
 
-    Programmation dynamique qui minimise la somme des écarts au carré à la moyenne.
+    Le nombre de blocs est le maximum réalisable (coupe gloutonne) ; la programmation dynamique
+    répartit ensuite les leçons en minimisant la somme des carrés des blocs, sous la contrainte.
     """
     n = len(weights)
-    parts = max(1, min(parts, n))
     if n == 0:
         return []
     prefix = [0.0]
     for w in weights:
         prefix.append(prefix[-1] + w)
-    target = prefix[-1] / parts
+    if prefix[-1] < minimum:
+        return [list(range(n))]
+    parts, acc = 0, 0.0
+    for w in weights:
+        acc += w
+        if acc >= minimum - 1e-9:
+            parts, acc = parts + 1, 0.0
     INF = float("inf")
     cost = [[INF] * (n + 1) for _ in range(parts + 1)]
     back = [[0] * (n + 1) for _ in range(parts + 1)]
     cost[0][0] = 0.0
     for k in range(1, parts + 1):
-        for j in range(k, n + 1):
-            best, arg = INF, k - 1
-            for i in range(k - 1, j):
-                if cost[k - 1][i] == INF:
+        for j in range(1, n + 1):
+            best, arg = INF, 0
+            for i in range(j):
+                block = prefix[j] - prefix[i]
+                if block < minimum - 1e-9 or cost[k - 1][i] == INF:
                     continue
-                c = cost[k - 1][i] + (prefix[j] - prefix[i] - target) ** 2
+                c = cost[k - 1][i] + block * block
                 if c < best:
                     best, arg = c, i
             cost[k][j], back[k][j] = best, arg
@@ -84,16 +110,35 @@ def lesson_label(lesson: Lesson) -> str:
     return f"M{lesson.module_index} · {lesson.title} ({kind})"
 
 
+def lesson_weights(inv: Inventory, video_factor: float = DEFAULT_VIDEO_FACTOR,
+                   from_index: int = 1) -> tuple[list[Lesson], list[float], list[bool]]:
+    """Leçons à planifier, minutes d'étude de chacune, et si la durée est estimée."""
+    lessons = [l for l in inv.lessons if l.index >= from_index and (l.kind != "vide" or l.stream_missed)]
+    known = sorted(l.video_duration_s for l in inv.lessons if l.video_duration_s)
+    typical = known[len(known) // 2] if known else 10 * 60      # médiane des vidéos mesurées
+    weights, estimated = [], []
+    for l in lessons:
+        minutes = l.study_minutes(video_factor)
+        guess = (l.kind == "video" or l.stream_missed) and not l.video_duration_s
+        if guess:
+            minutes += typical / 60 * video_factor
+        weights.append(max(minutes, 1.0))
+        estimated.append(guess)
+    return lessons, weights, estimated
+
+
+def count_sessions(inv: Inventory, target_minutes: float = 60, video_factor: float = DEFAULT_VIDEO_FACTOR,
+                   from_index: int = 1) -> int:
+    return len(minimum_partition(lesson_weights(inv, video_factor, from_index)[1], target_minutes))
+
+
 def build_sessions(inv: Inventory, start_day: date, start_time: str = "20:00", target_minutes: float = 60,
                    days: list[int] | None = None, video_factor: float = DEFAULT_VIDEO_FACTOR,
                    from_index: int = 1) -> list[Session]:
     days = days if days is not None else list(range(7))
-    lessons = [l for l in inv.lessons if l.index >= from_index and l.kind != "vide"]
-    weights = [max(l.study_minutes(video_factor), 1.0) for l in lessons]
-    total = sum(weights)
-    # « au moins 1 h par jour » : on prend le nombre de séances qui donne une moyenne >= la cible.
-    count = max(1, math.floor(total / target_minutes)) if total else 0
-    groups = balanced_partition(weights, count)
+    lessons, weights, estimated = lesson_weights(inv, video_factor, from_index)
+    # « 1 h par jour minimum » : chaque séance dure au moins la cible (sauf si tout tient en une seule).
+    groups = minimum_partition(weights, target_minutes)
     sessions: list[Session] = []
     day = start_day
     for number, group in enumerate(groups, start=1):
@@ -105,7 +150,8 @@ def build_sessions(inv: Inventory, start_day: date, start_time: str = "20:00", t
             lessons=[{
                 "index": lessons[i].index, "titre": lessons[i].title, "module": lessons[i].module_title,
                 "module_index": lessons[i].module_index, "type": lessons[i].kind,
-                "minutes": round(weights[i], 1), "url": lessons[i].url, "libelle": lesson_label(lessons[i]),
+                "minutes": round(weights[i], 1), "url": lessons[i].url, "estime": estimated[i],
+                "libelle": lesson_label(lessons[i]) + (" (durée estimée)" if estimated[i] else ""),
             } for i in group],
         ))
         day += timedelta(days=1)
@@ -135,8 +181,17 @@ def write_markdown(sessions: list[Session], path: Path, course_title: str, targe
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def write_json(sessions: list[Session], path: Path) -> None:
-    path.write_text(json.dumps([asdict(s) for s in sessions], ensure_ascii=False, indent=2), encoding="utf-8")
+def write_json(sessions: list[Session], path: Path, params: dict | None = None) -> None:
+    data = {"parametres": params or {}, "seances": [asdict(s) for s in sessions]}
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def read_params(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data.get("parametres", {}) if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
 
 
 def _ics_escape(text: str) -> str:
@@ -161,7 +216,8 @@ def write_ics(sessions: list[Session], path: Path, course_title: str, tz_name: s
     from zoneinfo import ZoneInfo
 
     tz = ZoneInfo(tz_name)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    now = datetime.now(timezone.utc)
+    stamp, sequence = now.strftime("%Y%m%dT%H%M%SZ"), int(now.timestamp()) // 60 % 1_000_000
     lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//podia-formation//planning//FR", "CALSCALE:GREGORIAN"]
     for s in sessions:
         hh, mm = (int(x) for x in s.start.split(":"))
@@ -173,7 +229,9 @@ def write_ics(sessions: list[Session], path: Path, course_title: str, tz_name: s
             desc += ["", course_url]
         lines += [
             "BEGIN:VEVENT",
-            f"UID:{uuid.uuid5(uuid.NAMESPACE_URL, course_url + s.day + str(s.number))}@podia-formation",
+            # UID stable d'une génération à l'autre : réimporter met à jour les séances au lieu de les dupliquer.
+            f"UID:{uuid.uuid5(uuid.NAMESPACE_URL, f'{course_url}#seance{s.number}')}@podia-formation",
+            f"SEQUENCE:{sequence}",
             f"DTSTAMP:{stamp}",
             f"DTSTART:{start.astimezone(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
             f"DTEND:{end.astimezone(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
