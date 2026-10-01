@@ -49,6 +49,8 @@ YouTube publie pour chaque chaîne un flux de ses dernières vidéos, sans clé 
 de la chaîne (« UC… »), que `vigie chaines` retrouve à partir de l'adresse et écrit dans la colonne
 `id_chaine` de `youtube.csv`. Ensuite, `vigie flux` ajoute une section « Nouvelles vidéos des chaînes
 suivies » au digest, et `/veille` les voit. Après avoir ajouté une chaîne : relancer `vigie chaines`.
+Si l'adresse d'une chaîne est inconnue ou fausse, laissez la case vide : la commande retrouve la chaîne par
+son nom (recherche YouTube) et écrit l'adresse ; une correspondance partielle est signalée, à vérifier.
 
 Pour chercher des vidéos par mots-clés : `vigie chercher ia 2027 emploi --nombre 15` (liste enregistrée
 dans `veille/videos/recherches/`). Les vidéos citées par les articles du digest sont listées dans la

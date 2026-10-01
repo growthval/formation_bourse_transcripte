@@ -287,24 +287,43 @@ def test_channel_id_and_cli_chaines(monkeypatch, tmp_path: Path, capsys):
     from vigie.sources import read_chaines
     from vigie.video import channel_id
 
+    class FakeYDL404(FakeYDL):
+        def extract_info(self, url, download=False, **kw):
+            if url == "https://www.youtube.com/@XerfiCanal":
+                raise RuntimeError("ERROR: [youtube:tab] @XerfiCanal: Unable to download API page: HTTP Error 404: Not Found")
+            return FakeYDL.answers[url]
+
     FakeYDL.answers = {"https://www.youtube.com/@Finary": {"id": "UUxyz", "channel_id": "UCfinary0001", "channel": "Finary"},
-                       "https://www.youtube.com/@inconnue": {"id": "PLxxx"}}
-    monkeypatch.setattr(yt_dlp, "YoutubeDL", FakeYDL)
+                       "https://www.youtube.com/@inconnue": {"id": "PLxxx"},
+                       "ytsearch8:Inconnue": {"entries": [{"channel": "Autre chose", "channel_id": "UCautre"}]},
+                       "ytsearch8:Xerfi Canal": {"entries": [None, {"channel": "Chaîne sans rapport", "channel_id": "UCnon"},
+                                                            {"channel": "Xerfi Canal", "channel_id": "UCxerfi0001",
+                                                             "channel_url": "https://www.youtube.com/channel/UCxerfi0001"}]},
+                       "ytsearch8:Institut des Libertés (Charles Gave)": {"entries": [
+                           {"channel": "Institut Des Libertés", "channel_id": "UCidl00001"}]}}
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", FakeYDL404)
     assert channel_id("https://www.youtube.com/@Finary") == "UCfinary0001"
     assert channel_id("https://www.youtube.com/@inconnue") == ""
     csv = tmp_path / "youtube.csv"
     csv.write_text("nom;pays;langue;theme;type;chaine;notes;actif\n# commentaire\n"
                    "Finary;France;fr;finance;explicatif;https://www.youtube.com/@Finary;note, avec virgule;oui\n"
                    "Inconnue;;;;;https://www.youtube.com/@inconnue;;oui\n"
+                   "Xerfi Canal;France;fr;économie;explicatif;https://www.youtube.com/@XerfiCanal;;oui\n"
+                   "Institut des Libertés (Charles Gave);France;fr;économie;opinion;;;oui\n"
                    "Désactivée;;;;;https://www.youtube.com/@off;;non\n", encoding="utf-8")
     assert cli.main(["chaines", "--chaines", str(csv)]) == 0
     out = capsys.readouterr().out
-    assert "trouvé Finary : UCfinary0001" in out and "identifiant non trouvé" in out and "1 identifiant(s) écrit(s)" in out
+    assert "trouvé Finary : UCfinary0001" in out and "?      Inconnue : identifiant non trouvé" in out
+    assert "trouvé Xerfi Canal : UCxerfi0001 par recherche du nom" in out and "adresse corrigée : https://www.youtube.com/channel/UCxerfi0001" in out
+    assert "trouvé Institut des Libertés (Charles Gave) : UCidl00001 par recherche du nom" in out and "correspondance partielle" in out
+    assert "3 ligne(s) mise(s) à jour" in out
     text = csv.read_bytes().decode("utf-8-sig")
     assert text.splitlines()[0] == "nom;pays;langue;theme;type;chaine;notes;actif;id_chaine" and "# commentaire" in text
     chaines = {c.nom: c for c in read_chaines(csv)}
     assert chaines["Finary"].id_chaine == "UCfinary0001" and chaines["Finary"].notes == "note, avec virgule"
     assert chaines["Finary"].flux == "https://www.youtube.com/feeds/videos.xml?channel_id=UCfinary0001"
+    assert chaines["Xerfi Canal"].chaine == "https://www.youtube.com/channel/UCxerfi0001" and chaines["Xerfi Canal"].id_chaine == "UCxerfi0001"
+    assert chaines["Institut des Libertés (Charles Gave)"].chaine == "https://www.youtube.com/channel/UCidl00001"
     assert chaines["Inconnue"].flux == "" and not chaines["Désactivée"].active
     # Relance : rien à faire, fichier inchangé.
     before = csv.read_bytes()

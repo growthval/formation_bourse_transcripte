@@ -128,34 +128,56 @@ def cmd_chercher(args) -> int:
 
 def cmd_chaines(args) -> int:
     from .sources import read_chaines, rewrite_rows
-    from .video import channel_id
+    from .video import channel_id, find_channel
 
     if not args.chaines.is_file():
         raise RuntimeError(f"registre des chaînes introuvable : {args.chaines}")
     chaines = read_chaines(args.chaines)
     found: dict[str, str] = {}
+    urls: dict[str, str] = {}
     for c in chaines:
-        if not c.active or not c.chaine:
+        if not c.active:
             continue
         if c.id_chaine:
             log(f"  déjà   {c.nom} : {c.id_chaine}")
             continue
-        try:
-            cid = channel_id(c.chaine)
-        except Exception as exc:
-            first = str(exc).strip().splitlines()[0] if str(exc).strip() else type(exc).__name__
-            log(f"  ERREUR {c.nom} : {first}")
-            _youtube_hint(c.chaine, first)
-            continue
+        cid, why = "", ""
+        if c.chaine:
+            try:
+                cid = channel_id(c.chaine)
+            except Exception as exc:
+                first = str(exc).strip().splitlines()[0] if str(exc).strip() else type(exc).__name__
+                why = "adresse de chaîne introuvable (404)" if "404" in first else first
+                _youtube_hint(c.chaine, first)
         if cid:
             found[c.nom] = cid
             log(f"  trouvé {c.nom} : {cid}")
+            continue
+        # Adresse absente ou fausse : on cherche la chaîne par son nom.
+        try:
+            hit = find_channel(c.nom)
+        except Exception as exc:
+            hit = None
+            why = why or (str(exc).strip().splitlines()[0] if str(exc).strip() else type(exc).__name__)
+        if hit:
+            found[c.nom] = hit["id"]
+            urls[c.nom] = hit["url"]
+            log(f"  trouvé {c.nom} : {hit['id']} par recherche du nom (chaîne « {hit['nom']} », adresse corrigée : {hit['url']})"
+                + ("" if hit["exact"] else " — correspondance partielle, à vérifier"))
         else:
-            log(f"  ?      {c.nom} : identifiant non trouvé (adresse de chaîne à vérifier : {c.chaine})")
+            log(f"  ?      {c.nom} : identifiant non trouvé" + (f" ({why})" if why else "")
+                + ". Vérifiez le nom ou l'adresse de la chaîne dans le registre.")
+
+    def mutate(row: dict) -> None:
+        nom = row.get("nom", "")
+        if nom in found:
+            row["id_chaine"] = found[nom]
+        if nom in urls:
+            row["chaine"] = urls[nom]
+
     if found and not args.sans_ecriture:
-        n = rewrite_rows(args.chaines, lambda row: row.update(id_chaine=found.get(row.get("nom", ""), row.get("id_chaine", ""))),
-                         ensure_columns=["id_chaine"])
-        log(f"\n{n} identifiant(s) écrit(s) dans {rel(args.chaines)}. Les nouvelles vidéos de ces chaînes "
+        n = rewrite_rows(args.chaines, mutate, ensure_columns=["id_chaine"])
+        log(f"\n{n} ligne(s) mise(s) à jour dans {rel(args.chaines)}. Les nouvelles vidéos de ces chaînes "
             "apparaîtront dans « vigie flux ».")
     elif found:
         log(f"\n{len(found)} identifiant(s) trouvé(s), fichier non modifié (--sans-ecriture).")

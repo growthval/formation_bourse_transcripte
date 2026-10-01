@@ -182,6 +182,35 @@ def render_search(query: str, results: list[dict], when: datetime) -> str:
     return "\n".join(lines) + "\n"
 
 
+def find_channel(name: str, n: int = 8) -> dict | None:
+    """Chaîne dont le nom correspond à ``name``, retrouvée par la recherche YouTube (quand l'adresse manque ou est fausse).
+
+    Renvoie {"id", "nom", "url", "exact"} ; ``exact`` vaut False si seule une partie du nom correspond (à vérifier).
+    """
+    from yt_dlp import YoutubeDL
+
+    from .flux import fold
+
+    opts = {"quiet": True, "no_warnings": True, "extract_flat": True}
+    with YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(f"ytsearch{n}:{name}", download=False) or {}
+    target = fold(name).strip()
+    best: tuple[int, dict] | None = None
+    for e in info.get("entries") or []:
+        if not e:
+            continue
+        chan = str(e.get("channel") or e.get("uploader") or "").strip()
+        cid = str(e.get("channel_id") or "")
+        if not cid.startswith("UC") or not chan:
+            continue
+        f = fold(chan).strip()
+        score = 2 if f == target else (1 if (f in target or target in f) else 0)
+        if score and (best is None or score > best[0]):
+            best = (score, {"id": cid, "nom": chan, "url": e.get("channel_url") or f"https://www.youtube.com/channel/{cid}",
+                            "exact": score == 2})
+    return best[1] if best else None
+
+
 def channel_id(url: str) -> str:
     """Identifiant « UC… » d'une chaîne (nécessaire pour son flux de nouvelles vidéos)."""
     from yt_dlp import YoutubeDL

@@ -2,6 +2,7 @@ nom;pays;langue;theme;type;chaine;id_chaine;notes;actif
 # Chaînes YouTube suivies. type = info | explicatif | entretien | institutionnel | opinion.
 # Toute chaîne « opinion » se recoupe avec au moins deux sources d'un autre type avant d'en tirer quoi que ce soit.
 # id_chaine (identifiant « UC… ») est rempli par « vigie chaines » : il sert au flux des nouvelles vidéos dans « vigie flux ».
+# Adresse de chaîne inconnue ? Laissez la case « chaine » vide : « vigie chaines » retrouve la chaîne par son nom et écrit l'adresse.
 # Vérifier l'adresse exacte de chaque chaîne au premier usage (vigie video "adresse d'une vidéo").
 Finary;France;fr;finances personnelles, bourse;explicatif et entretiens;https://www.youtube.com/@Finary;;Entreprise (application de suivi de patrimoine) : intérêt commercial à garder en tête. Chaîne de la vidéo « Personne n'est prêt pour 2027 »;oui
 Zonebourse;France;fr;bourse;info et pédagogie;https://www.youtube.com/@zonebourse;;Éditeur de la formation suivie;oui
