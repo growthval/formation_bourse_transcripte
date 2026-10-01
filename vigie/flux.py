@@ -6,20 +6,28 @@ import gzip
 import html
 import re
 import unicodedata
+import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
+from html.entities import name2codepoint
 from pathlib import Path
 from typing import Callable, Iterable
 
 from .sources import CATEGORIES, Source, read_sources, short_error
 
 USER_AGENT = "Mozilla/5.0 (compatible; vigie/0.1; veille personnelle)"
+# Certains sites refusent (403) tout ce qui ne ressemble pas à un navigateur : second essai avec cet en-tête.
+BROWSER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0"
 TIMEOUT = 20
 RESUME_MAX = 280
 _TAG_RE = re.compile(r"<[^>]+>")
+_XML_ENTITIES = {"amp", "lt", "gt", "quot", "apos"}
+_ENTITY_RE = re.compile(rb"&([A-Za-z][A-Za-z0-9]*);")
+_DATE_FORMATS = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%d/%m/%Y %H:%M", "%d/%m/%Y", "%Y%m%d",
+                 "%a, %d %b %Y %H:%M:%S", "%d %b %Y %H:%M:%S", "%d %b %Y")
 
 
 @dataclass
@@ -33,10 +41,9 @@ class Entree:
 
 # --- Récupération ----------------------------------------------------------------
 
-def fetch(url: str, timeout: float = TIMEOUT) -> bytes:
-    """Télécharge un flux (bibliothèque standard seulement : rien à installer)."""
+def _open(url: str, agent: str, timeout: float) -> bytes:
     req = urllib.request.Request(url, headers={
-        "User-Agent": USER_AGENT,
+        "User-Agent": agent,
         "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.8",
         "Accept-Encoding": "gzip, identity",
     })
@@ -45,6 +52,20 @@ def fetch(url: str, timeout: float = TIMEOUT) -> bytes:
         if resp.headers.get("Content-Encoding", "").lower() == "gzip" or data[:2] == b"\x1f\x8b":
             data = gzip.decompress(data)
     return data
+
+
+def fetch(url: str, timeout: float = TIMEOUT, opener: Callable[[str, str, float], bytes] = _open) -> bytes:
+    """Télécharge un flux (bibliothèque standard seulement : rien à installer).
+
+    Un refus 403 est retenté une fois avec un en-tête de navigateur ; une protection anti-robot
+    plus stricte (défi Cloudflare…) reste en erreur : la source se lit alors à la main.
+    """
+    try:
+        return opener(url, USER_AGENT, timeout)
+    except urllib.error.HTTPError as exc:
+        if exc.code != 403:
+            raise
+        return opener(url, BROWSER_AGENT, timeout)
 
 
 # --- Analyse d'un flux -----------------------------------------------------------
@@ -60,8 +81,8 @@ def _text(el: ET.Element, *names: str) -> str:
 
 
 def parse_date(value: str) -> datetime | None:
-    """Date RFC 822 (RSS) ou ISO 8601 (Atom, Dublin Core), toujours renvoyée avec fuseau."""
-    value = (value or "").strip()
+    """Date RFC 822 (RSS), ISO 8601 (Atom, Dublin Core) ou formats courants, toujours renvoyée avec fuseau."""
+    value = " ".join((value or "").split())
     if not value:
         return None
     dt = None
@@ -71,10 +92,36 @@ def parse_date(value: str) -> datetime | None:
         try:
             dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
         except ValueError:
-            return None
+            # Fuseau en toutes lettres inconnu (« JST »), formats maison : on retire le fuseau et on essaie.
+            bare = re.sub(r"\s+(?:[A-Z]{2,5}|[+-]\d{4}|GMT[+-]\d+)$", "", value)
+            for fmt in _DATE_FORMATS:
+                try:
+                    dt = datetime.strptime(bare, fmt)
+                    break
+                except ValueError:
+                    continue
     if dt is None:
         return None
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _entity(m: re.Match) -> bytes:
+    """Entité HTML (« &nbsp; », « &rsquo; ») interdite en XML sans DTD : convertie en caractère."""
+    name = m.group(1).decode("ascii")
+    if name in _XML_ENTITIES:
+        return m.group(0)
+    code = name2codepoint.get(name)
+    return chr(code).encode("utf-8") if code else b"&amp;" + m.group(1) + b";"
+
+
+def sanitize_xml(data: bytes) -> bytes:
+    """Rend lisible un flux « presque » XML : texte ou lignes vides avant l'en-tête, BOM, entités HTML."""
+    head = data[:4096]
+    starts = [i for i in (head.find(b"<?xml"), head.find(b"<rss"), head.find(b"<feed"), head.find(b"<rdf:RDF")) if i >= 0]
+    if starts and min(starts) > 0:
+        data = data[min(starts):]
+    data = data.lstrip(b"\xef\xbb\xbf \t\r\n")
+    return _ENTITY_RE.sub(_entity, data)
 
 
 def clean(text: str, limit: int = RESUME_MAX) -> str:
@@ -96,7 +143,7 @@ def _atom_link(el: ET.Element) -> str:
 
 def parse_feed(data: bytes, source: str) -> list[Entree]:
     """Entrées d'un flux RSS 2.0, RSS 1.0 (RDF) ou Atom. Lève ``xml.etree.ElementTree.ParseError`` si ce n'est pas du XML."""
-    root = ET.fromstring(data)
+    root = ET.fromstring(sanitize_xml(data))
     kind = root.tag.split("}")[-1].casefold()
     out: list[Entree] = []
     if kind == "feed":                                     # Atom

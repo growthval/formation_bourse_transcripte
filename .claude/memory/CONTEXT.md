@@ -2,9 +2,8 @@
 # Contexte courant — Vigie
 
 ## Priorités
-1. Mettre le projet en route sur la machine locale (`E:\formation`, où la formation est **déjà transcrite
-   en intégralité** dans `formation/` depuis le 01/10/2026) : passer le dépôt sur la branche du projet,
-   tester les flux (`vigie sources --tester`).
+1. Mise en route faite le 01/10/2026 : dépôt rattaché à `E:\formation` (formation **déjà transcrite** dans
+   `formation/`), Deno installé, 43 flux sur 48 validés. Reste : `git pull`, relancer `vigie sources --tester`.
 2. Première analyse : la vidéo Finary « Personne n'est prêt pour 2027 » (`/analyse-video`), puis le
    scénario AI 2027 et ses critiques (`/dossier ia-avenir-et-risques`).
 3. Première veille (`/veille`) et premier remplissage de `plan/signaux.md` ; `/formation synthèse`.
@@ -15,7 +14,7 @@
 
 ## En attente
 - Adresse de la vidéo Finary (BLK-001).
-- Correction des flux RSS en erreur après le premier test.
+- Résultat du second test des flux (Corriere, ANSA, WSJ, ECFR, Times of Israel).
 
 ## Rôles
 Voir `CLAUDE.md` (sections « Agents disponibles » et « Gouvernance ») : l'utilisateur décide, les agents instruisent.

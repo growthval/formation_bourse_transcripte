@@ -33,6 +33,9 @@ vigie sources --tester
 Pour chaque flux en erreur : chercher « RSS » sur le site du média, corriger l'adresse dans
 `medias.csv`, ou laisser vide (la source est alors consultée à la main par `/veille`).
 
+Une case ne doit jamais contenir de « ; » (c'est le séparateur) : la ligne serait décalée et la source
+désactivée. `vigie sources` signale les lignes mal formées.
+
 ## Ajouter une source
 
 1. Vérifier qu'elle passe la grille de [`../methode/sources.md`](../methode/sources.md) (identité réelle,

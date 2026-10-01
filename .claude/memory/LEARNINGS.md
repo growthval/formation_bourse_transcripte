@@ -23,3 +23,10 @@
   que par `find`, `findall` et `iterfind` (chemins XPath).
 - **Impact** : `vigie/flux.py` utilise `root.iterfind(".//{*}item")` ; un test couvre RSS 2.0, RSS 1.0 et Atom.
 - **Source** : échec de test puis correction.
+
+## LRN-004 — Un « ; » dans une note du registre décale la ligne
+- **Date** : 2026-10-01
+- **Découverte** : les CSV du registre utilisent « ; » comme séparateur ; une note contenant « ; » ajoute
+  une colonne, la valeur « oui » glisse hors de la colonne « actif » et la source est désactivée sans erreur.
+- **Impact** : `vigie sources` signale désormais les lignes mal formées ; consigne ajoutée en tête des CSV.
+- **Source** : deux sources (ECFR, Times of Israel) devenues inactives après l'ajout d'une note.

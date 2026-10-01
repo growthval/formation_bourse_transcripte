@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 from dataclasses import dataclass, fields
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -73,6 +74,24 @@ def read_sources(path: Path) -> list[Source]:
     return out
 
 
+def malformed_rows(path: Path) -> list[str]:
+    """Lignes qui n'ont pas le nombre de colonnes de l'en-tête (un « ; » dans une note décale tout)."""
+    lines = _decode(Path(path).read_bytes()).splitlines()
+    header = next((l for l in lines if l.strip() and not l.lstrip().startswith("#")), "")
+    if not header:
+        return []
+    delim = _delimiter(header)
+    expected = len(next(csv.reader([header], delimiter=delim)))
+    out = []
+    for n, line in enumerate(lines, start=1):
+        if not line.strip() or line.lstrip().startswith("#") or line == header:
+            continue
+        count = len(next(csv.reader([line], delimiter=delim)))
+        if count != expected:
+            out.append(f"ligne {n} : {count} colonnes au lieu de {expected} (un « {delim} » en trop ou en moins ?) : {line[:60]}…")
+    return out
+
+
 def missing_columns(path: Path, required: list[str] | None = None) -> list[str]:
     lines = [l for l in _decode(Path(path).read_bytes()).splitlines() if l.strip() and not l.lstrip().startswith("#")]
     if not lines:
@@ -81,9 +100,17 @@ def missing_columns(path: Path, required: list[str] | None = None) -> list[str]:
     return [c for c in (required or COLONNES_MEDIAS) if c not in header]
 
 
+STALE_DAYS = 30
+
+
 def check_feeds(sources: list[Source], fetch: Callable[[str], bytes], parse: Callable[[bytes, str], list],
-                log: Callable[[str], None] = print) -> list[tuple[Source, bool, str]]:
-    """Interroge chaque flux et résume ce qu'il renvoie (commande « sources --tester »)."""
+                log: Callable[[str], None] = print, now: datetime | None = None) -> list[tuple[Source, bool, str]]:
+    """Interroge chaque flux et résume ce qu'il renvoie (commande « sources --tester »).
+
+    Un flux qui répond mais dont le dernier article a plus de 30 jours est signalé « FIGÉ » : il est
+    probablement abandonné par le média et donnerait un faux « rien de nouveau ».
+    """
+    now = now or datetime.now(timezone.utc)
     results: list[tuple[Source, bool, str]] = []
     for s in sources:
         if not s.active:
@@ -100,9 +127,15 @@ def check_feeds(sources: list[Source], fetch: Callable[[str], bytes], parse: Cal
             continue
         dated = [e.date for e in entries if e.date]
         latest = f", dernier article le {max(dated):%d/%m/%Y}" if dated else ", articles sans date"
-        msg = f"{len(entries)} article(s){latest}" if entries else "flux lu mais vide (adresse à vérifier)"
-        results.append((s, bool(entries), msg))
-        log(f"  {'OK     ' if entries else 'VIDE   '} {s.nom} : {msg}")
+        stale = bool(dated) and (now - max(dated)).days > STALE_DAYS
+        if not entries:
+            ok, label, msg = False, "VIDE   ", "flux lu mais vide (adresse à vérifier)"
+        elif stale:
+            ok, label, msg = False, "FIGÉ   ", f"{len(entries)} article(s){latest} : flux probablement abandonné, adresse à changer ou à vider"
+        else:
+            ok, label, msg = True, "OK     ", f"{len(entries)} article(s){latest}"
+        results.append((s, ok, msg))
+        log(f"  {label} {s.nom} : {msg}")
     return results
 
 

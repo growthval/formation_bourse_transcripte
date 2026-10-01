@@ -2,6 +2,7 @@ nom;pays;langue;categorie;orientation;rss;site;notes;actif
 # Registre des médias et institutions lus par « vigie flux » et par la commande /veille.
 # Colonnes : categorie = presse | economie | institution | geopolitique | droit | ia | autre ; actif = oui | non.
 # « orientation » est un repère de lecture (ligne éditoriale, propriétaire, financement), pas un jugement : à ajuster.
+# Jamais de « ; » dans une case (c'est le séparateur) : la ligne serait décalée et la source désactivée.
 # Les adresses RSS sont à vérifier avec : vigie sources --tester (une adresse vide = source consultée à la main).
 Le Monde;France;fr;presse;centre-gauche;https://www.lemonde.fr/rss/une.xml;https://www.lemonde.fr;Référence généraliste. Flux économie : https://www.lemonde.fr/economie/rss_full.xml;oui
 Les Echos;France;fr;economie;libéral (groupe LVMH);;https://www.lesechos.fr;Quotidien économique de référence, payant. Flux RSS à retrouver sur le site;oui
@@ -27,14 +28,15 @@ Reuters;Royaume-Uni;en;presse;agence;;https://www.reuters.com;Agence de référe
 Der Spiegel International;Allemagne;en;presse;centre-gauche;https://www.spiegel.de/international/index.rss;https://www.spiegel.de/international;Allemagne en anglais;oui
 Frankfurter Allgemeine Zeitung;Allemagne;de;presse;centre-droit;;https://www.faz.net;;oui
 Handelsblatt;Allemagne;de;economie;économie, libéral;;https://www.handelsblatt.com;Industrie allemande;oui
-Corriere della Sera;Italie;it;presse;centre;https://xml2.corriereobjects.it/rss/homepage.xml;https://www.corriere.it;;oui
+Corriere della Sera;Italie;it;presse;centre;https://xml2.corriereobjects.it/rss/esteri.xml;https://www.corriere.it;Le flux « homepage » est figé depuis 2024 : flux international à la place (à tester) ;oui
+ANSA;Italie;it;presse;agence;https://www.ansa.it/sito/notizie/topnews/topnews_rss.xml;https://www.ansa.it;Agence de presse italienne (à tester);oui
 El País;Espagne;es;presse;centre-gauche;;https://elpais.com;Édition en anglais : english.elpais.com;oui
 NZZ;Suisse;de;presse;libéral-conservateur;https://www.nzz.ch/international.rss;https://www.nzz.ch;;oui
 Le Temps;Suisse;fr;presse;centre;;https://www.letemps.ch;Finance suisse;oui
 Politico Europe;Belgique;en;presse;centre (groupe Axel Springer);https://www.politico.eu/feed/;https://www.politico.eu;Institutions européennes;oui
 Euractiv;Belgique;en;presse;spécialisé Union européenne;;https://www.euractiv.com;;oui
 Notes from Poland;Pologne;en;presse;indépendant;https://notesfrompoland.com/feed/;https://notesfrompoland.com;Pologne et flanc est;oui
-Kyiv Independent;Ukraine;en;presse;indépendant;https://kyivindependent.com/rss/;https://kyivindependent.com;Guerre en Ukraine, point de vue ukrainien;oui
+Kyiv Independent;Ukraine;en;presse;indépendant;;https://kyivindependent.com;Guerre en Ukraine, point de vue ukrainien. Flux RSS introuvable (404 le 01/10/2026) : lire le site, ou renseigner l'adresse du flux si le site en affiche une;oui
 Meduza;Russie (rédaction en exil);en;presse;indépendant, opposé au Kremlin;https://meduza.io/rss/en/all;https://meduza.io/en;Russie vue par des journalistes en exil;oui
 The Moscow Times;Russie (rédaction en exil);en;presse;indépendant;;https://www.themoscowtimes.com;;oui
 TASS;Russie;en;presse;agence d'État;;https://tass.com;À lire comme position officielle russe, jamais seule;oui
@@ -43,7 +45,7 @@ Commission européenne;Union européenne;fr;institution;exécutif européen;;htt
 Eurostat;Union européenne;en;institution;statistique;;https://ec.europa.eu/eurostat;Source primaire;oui
 Bank of England;Royaume-Uni;en;institution;banque centrale;;https://www.bankofengland.co.uk;;oui
 The New York Times;États-Unis;en;presse;centre-gauche;https://rss.nytimes.com/services/xml/rss/nyt/World.xml;https://www.nytimes.com;Flux économie : https://rss.nytimes.com/services/xml/rss/nyt/Business.xml;oui
-The Wall Street Journal;États-Unis;en;economie;centre-droit (News Corp);https://feeds.a.dj.com/rss/RSSWorldNews.xml;https://www.wsj.com;Flux marchés : https://feeds.a.dj.com/rss/RSSMarketsMain.xml;oui
+The Wall Street Journal;États-Unis;en;economie;centre-droit (News Corp);https://feeds.content.dowjones.io/public/rss/RSSWorldNews;https://www.wsj.com;Ancien flux feeds.a.dj.com figé depuis janvier 2025. Flux marchés : https://feeds.content.dowjones.io/public/rss/RSSMarketsMain;oui
 The Washington Post;États-Unis;en;presse;centre-gauche;;https://www.washingtonpost.com;;oui
 Bloomberg;États-Unis;en;economie;marchés, centre;https://feeds.bloomberg.com/markets/news.rss;https://www.bloomberg.com;Autres flux : https://feeds.bloomberg.com/economics/news.rss et https://feeds.bloomberg.com/politics/news.rss;oui
 CNBC;États-Unis;en;economie;marchés;https://www.cnbc.com/id/100003114/device/rss/rss.html;https://www.cnbc.com;Ton très marchés, court terme;oui
@@ -76,7 +78,7 @@ IFRI;France;fr;geopolitique;think tank;;https://www.ifri.org;;oui
 IRIS;France;fr;geopolitique;think tank;;https://www.iris-france.org;;oui
 Institut Montaigne;France;fr;geopolitique;think tank libéral;;https://www.institutmontaigne.org;;oui
 Fondation Robert Schuman;France;fr;geopolitique;think tank européen;;https://www.robert-schuman.eu;;oui
-ECFR;Europe;en;geopolitique;think tank;https://ecfr.eu/feed/;https://ecfr.eu;;oui
+ECFR;Europe;en;geopolitique;think tank;https://ecfr.eu/feed/;https://ecfr.eu;Refus 403 le 01/10/2026 : second essai automatique avec un en-tête de navigateur, et si l'erreur persiste, vider l'adresse;oui
 Chatham House;Royaume-Uni;en;geopolitique;think tank;;https://www.chathamhouse.org;;oui
 CSIS;États-Unis;en;geopolitique;think tank (financements d'entreprises de défense à garder en tête);;https://www.csis.org;;oui
 Carnegie Endowment;États-Unis;en;geopolitique;think tank;;https://carnegieendowment.org;;oui
@@ -98,7 +100,7 @@ The Straits Times;Singapour;en;presse;proche du gouvernement;;https://www.strait
 ABC News (Australie);Australie;en;presse;service public;https://www.abc.net.au/news/feed/51120/rss.xml;https://www.abc.net.au/news;Indo-Pacifique;oui
 Al Jazeera English;Qatar;en;presse;financé par le Qatar;https://www.aljazeera.com/xml/rss/all.xml;https://www.aljazeera.com;Monde arabe, Sud global. Pondérer sur le Golfe;oui
 Haaretz;Israël;en;presse;centre-gauche;;https://www.haaretz.com;;oui
-The Times of Israel;Israël;en;presse;centre;https://www.timesofisrael.com/feed/;https://www.timesofisrael.com;;oui
+The Times of Israel;Israël;en;presse;centre;https://www.timesofisrael.com/feed/;https://www.timesofisrael.com;Refus 403 le 01/10/2026 : second essai automatique avec un en-tête de navigateur, et si l'erreur persiste, vider l'adresse;oui
 Al-Monitor;États-Unis;en;presse;spécialisé Moyen-Orient;;https://www.al-monitor.com;;oui
 Jeune Afrique;France;fr;presse;centre;;https://www.jeuneafrique.com;Afrique francophone;oui
 Daily Maverick;Afrique du Sud;en;presse;indépendant;;https://www.dailymaverick.co.za;;oui

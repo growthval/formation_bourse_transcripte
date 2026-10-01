@@ -186,3 +186,50 @@ def test_cli_flux_and_sources(tmp_path: Path, monkeypatch, capsys):
     assert "4 source(s), 4 active(s), 3 avec flux RSS." in out and "1 en erreur" in out
     assert cli.main(["flux", "--sources", str(tmp_path / "absent.csv")]) == 1
     assert "ERREUR" in capsys.readouterr().out
+
+
+def test_sanitize_tolerates_leading_text_html_entities_and_bom():
+    from vigie.flux import sanitize_xml
+
+    dirty = ("\n\n<?xml version=\"1.0\"?><rss><channel><item><title>L&rsquo;Europe &amp; l&#39;IA&nbsp;!</title>"
+             "<link>https://x/1</link></item></channel></rss>").encode("utf-8")
+    entries = parse_feed(dirty, "s")
+    assert entries[0].titre == "L’Europe & l'IA !"
+    assert sanitize_xml(b"\xef\xbb\xbf  <feed xmlns=\"http://www.w3.org/2005/Atom\"></feed>").startswith(b"<feed")
+    assert sanitize_xml(b"<p>&inconnue;</p>") == b"<p>&amp;inconnue;</p>"
+
+
+def test_parse_date_fallback_formats():
+    assert parse_date("Wed, 01 Oct 2026 08:00:00 JST") is not None
+    assert parse_date("2026-10-01 08:00:00").day == 1
+    assert parse_date("01/10/2026") is not None and parse_date("20261001").month == 10
+
+
+def test_fetch_retries_once_with_browser_agent_on_403():
+    import urllib.error
+
+    from vigie.flux import BROWSER_AGENT, USER_AGENT, fetch
+
+    calls = []
+
+    def opener(url, agent, timeout):
+        calls.append(agent)
+        if agent == USER_AGENT:
+            raise urllib.error.HTTPError(url, 403, "Forbidden", {}, None)
+        return b"<rss/>"
+    assert fetch("https://x/rss", opener=opener) == b"<rss/>" and calls == [USER_AGENT, BROWSER_AGENT]
+
+    def opener404(url, agent, timeout):
+        raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+    with pytest.raises(urllib.error.HTTPError):
+        fetch("https://x/rss", opener=opener404)
+
+
+def test_check_feeds_flags_stale_feeds(tmp_path: Path):
+    old_rss = RSS.replace(b"01 Oct 2026", b"01 Oct 2024").replace(b"30 Sep 2026", b"30 Sep 2024").replace(b"01 Sep 2026", b"01 Sep 2024")
+    sources = [Source("Vieux", rss="https://old"), Source("Frais", rss="https://journal.example/rss")]
+    results = check_feeds(sources, _fake_fetch({"https://old": old_rss, "https://journal.example/rss": RSS}), parse_feed,
+                          log=lambda _: None, now=NOW)
+    status = {s.nom: (ok, msg) for s, ok, msg in results}
+    assert not status["Vieux"][0] and "abandonné" in status["Vieux"][1]
+    assert status["Frais"][0]

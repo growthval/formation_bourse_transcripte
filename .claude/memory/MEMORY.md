@@ -11,12 +11,13 @@
 - [LRN-001](./LEARNINGS.md#lrn-001) : depuis une session cloud, YouTube et les flux RSS sont inaccessibles ; tester en local (2026-10-01)
 - [LRN-002](./LEARNINGS.md#lrn-002) : yt-dlp a besoin d'un moteur JavaScript (Deno) pour YouTube (2026-10-01)
 - [LRN-003](./LEARNINGS.md#lrn-003) : `Element.iter()` ignore le joker `{*}` ; utiliser `iterfind(".//{*}item")` (2026-10-01)
+- [LRN-004](./LEARNINGS.md#lrn-004) : un « ; » dans une note du registre CSV décale la ligne et désactive la source (2026-10-01)
 
 ## Blocages actifs
 - [BLK-001](./BLOCKERS.md#blk-001) : lien de la vidéo Finary « Personne n'est prêt pour 2027 » à fournir (2026-10-01)
 
 ## Dernière itération
-- [2026-10-01](./ITERATION_LOG.md) : création de la structure du projet (gouvernance, méthode, sources, outils `vigie`, squelettes de veille et de plan)
+- [2026-10-01](./ITERATION_LOG.md) : mise en route locale : dépôt rattaché à `E:\formation`, 43 flux sur 48 validés, lecteur de flux rendu tolérant
 
 ## État courant
 → Voir [CONTEXT.md](./CONTEXT.md)

@@ -103,13 +103,15 @@ def cmd_flux(args) -> int:
 
 def cmd_sources(args) -> int:
     from .flux import fetch, parse_feed
-    from .sources import check_feeds, missing_columns, read_sources
+    from .sources import check_feeds, malformed_rows, missing_columns, read_sources
 
     if not args.sources.is_file():
         raise RuntimeError(f"registre des sources introuvable : {args.sources}")
     missing = missing_columns(args.sources)
     if missing:
         log(f"ATTENTION : colonnes absentes de {rel(args.sources)} : {', '.join(missing)}")
+    for problem in malformed_rows(args.sources):
+        log(f"ATTENTION : {rel(args.sources)}, {problem}")
     sources = read_sources(args.sources)
     active = [s for s in sources if s.active]
     with_rss = [s for s in active if s.rss]
