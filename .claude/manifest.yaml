@@ -1,0 +1,18 @@
+# Provenance de la structure de gouvernance Claude Code de ce dépôt.
+project: Vigie — veille, investissement et anticipation
+slug: formation_bourse_transcripte
+profile: autre (veille et aide à la décision, avec un outil Python existant) — constitution dérivée de CLAUDE.base.md
+tier: Avancé, allégé (agents chercheur/analyste/auditeur, règles ciblées, skills, mémoire, settings, soul/user ; sans orchestrateur ni hooks — voir DEC-001)
+mode: génération en place dans un dépôt existant sans configuration IA (l'outil podia_formation est conservé tel quel)
+generated: 2026-10-01
+engine: Structure Maker 1.0.0 (dépôt growthval/structure-maker, playbook engine/ENGINE.md)
+components:
+  constitution: CLAUDE.md
+  agents: [chercheur (sonnet), analyste (inherit), auditeur (opus)]
+  rules: ["veille.md (veille/**, plan/**)", "code-python.md (podia_formation/**, vigie/**, tests/**)", "formation.md (formation/**, connaissances/formation/**)"]
+  skills: [veille, analyse-video, croiser, dossier, formation, anticiper, log]
+  memory: true
+  settings: standard adapté (WebSearch/WebFetch et commandes du projet pré-approuvés ; formation/ protégé en écriture)
+  governance: [soul, user]
+  hooks: none
+target_path: le dépôt lui-même (cloner sur la machine locale)

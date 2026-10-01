@@ -1,0 +1,41 @@
+nom;role;organisation;pays;canal;identifiant;theme;notes;actif
+# Personnes à suivre pour le dossier IA (départs des laboratoires, sécurité, prospective) et pour la géopolitique.
+# canal = X | LinkedIn | blog | newsletter | podcast. Les identifiants X sont à vérifier au premier usage (sans le @).
+# Une déclaration sur un réseau social est une source de niveau D (voir connaissances/methode/sources.md) : à recouper.
+Daniel Kokotajlo;chercheur en gouvernance, ancien d'OpenAI;AI Futures Project (auteur principal d'AI 2027);États-Unis;X;DKokotajlo;IA, prospective;A quitté OpenAI en 2024 en renonçant à ses actions plutôt que de signer une clause de non-dénigrement;oui
+Jan Leike;chercheur en alignement, ancien co-responsable du superalignement d'OpenAI;Anthropic;États-Unis;X;janleike;sécurité de l'IA;Départ d'OpenAI en mai 2024 avec une critique publique de la place de la sécurité;oui
+Ilya Sutskever;cofondateur et ancien chef scientifique d'OpenAI;Safe Superintelligence (SSI);États-Unis;X;ilyasut;IA;Départ d'OpenAI en mai 2024;oui
+Leopold Aschenbrenner;ancien de l'équipe superalignement d'OpenAI;auteur de « Situational Awareness » (2024), gérant d'un fonds IA;États-Unis;X;leopoldasch;IA, prospective, géopolitique;Thèses très affirmées (course avec la Chine) : recouper;oui
+Miles Brundage;ancien responsable de la préparation à l'AGI chez OpenAI;indépendant;États-Unis;X;Miles_Brundage;politique de l'IA;Départ d'OpenAI en octobre 2024 (« aucun laboratoire n'est prêt »);oui
+Steven Adler;ancien chercheur en sécurité chez OpenAI;indépendant;États-Unis;X;sjgadler;sécurité de l'IA;Départ fin 2024, inquiétudes publiques sur le rythme;oui
+William Saunders;ancien chercheur superalignement d'OpenAI;indépendant;États-Unis;;;sécurité de l'IA;Témoignage au Sénat américain en septembre 2024;oui
+Helen Toner;ancienne membre du conseil d'OpenAI;CSET (Georgetown);États-Unis;X;hlntnr;gouvernance de l'IA;;oui
+Geoffrey Hinton;pionnier de l'apprentissage profond, prix Nobel de physique 2024;Université de Toronto (a quitté Google en 2023);Canada;;;risques de l'IA;;oui
+Yoshua Bengio;pionnier de l'apprentissage profond, prix Turing;Mila, LawZero;Canada;X;Yoshua_Bengio;sécurité de l'IA;Rapport scientifique international sur la sécurité de l'IA;oui
+Yann LeCun;pionnier de l'apprentissage profond, prix Turing, ancien chef scientifique IA de Meta;sa propre société;France / États-Unis;X;ylecun;IA;Sceptique des scénarios de risque existentiel : contrepoint utile;oui
+Dario Amodei;PDG;Anthropic;États-Unis;;;IA, prospective;Essais « Machines of Loving Grace » (2024) et sur les risques : communication d'un acteur;oui
+Sam Altman;PDG;OpenAI;États-Unis;X;sama;IA;Communication d'un acteur, annonces à vérifier;oui
+Demis Hassabis;PDG;Google DeepMind;Royaume-Uni;X;demishassabis;IA;;oui
+Jack Clark;cofondateur, politique publique;Anthropic;États-Unis;X;jackclarkSF;IA;Newsletter Import AI;oui
+Chris Olah;cofondateur, interprétabilité;Anthropic;États-Unis;X;ch402;IA;;oui
+Mira Murati;ancienne directrice technique d'OpenAI;Thinking Machines Lab;États-Unis;X;miramurati;IA;Départ d'OpenAI en septembre 2024;oui
+John Schulman;cofondateur d'OpenAI;Thinking Machines Lab (après un passage chez Anthropic);États-Unis;X;johnschulman2;IA;Départ d'OpenAI en août 2024;oui
+Paul Christiano;chercheur en alignement, ancien d'OpenAI;US AI Safety Institute (CAISI);États-Unis;X;paulfchristiano;sécurité de l'IA;;oui
+Dan Hendrycks;directeur;Center for AI Safety;États-Unis;X;DanHendrycks;sécurité de l'IA;;oui
+Zvi Mowshowitz;blogueur;Don't Worry About the Vase;États-Unis;X;TheZvi;IA;Revue hebdomadaire;oui
+Gary Marcus;professeur émérite, critique;Université de New York;États-Unis;X;GaryMarcus;IA;Sceptique des capacités annoncées : contrepoint;oui
+Arvind Narayanan;professeur;Princeton (AI Snake Oil);États-Unis;X;random_walker;IA;Sceptique méthodique;oui
+Ethan Mollick;professeur;Wharton;États-Unis;X;emollick;usages de l'IA;Impact sur le travail;oui
+Andrej Karpathy;chercheur, ancien d'OpenAI et de Tesla;indépendant;États-Unis;X;karpathy;IA;Pédagogie, état de l'art;oui
+Eli Lifland;prévisionniste;AI Futures Project;États-Unis;X;eli_lifland;prospective;Coauteur d'AI 2027;oui
+Scott Alexander;essayiste;Astral Codex Ten;États-Unis;;;prospective;Coauteur d'AI 2027;oui
+Karen Hao;journaliste;indépendante (autrice d'« Empire of AI »);États-Unis;X;_KarenHao;IA;Enquêtes sur OpenAI;oui
+Kelsey Piper;journaliste;The Argument;États-Unis;X;KelseyTuoc;IA;A révélé les clauses de non-dénigrement d'OpenAI en 2024;oui
+Cade Metz;journaliste;The New York Times;États-Unis;X;CadeMetz;IA;;oui
+Casey Newton;journaliste;Platformer;États-Unis;X;CaseyNewton;IA, plateformes;;oui
+Ed Zitron;journaliste, critique;Where's Your Ed At;États-Unis;X;edzitron;IA, économie du secteur;Thèse de la bulle : contrepoint, ton polémique;oui
+Benedict Evans;analyste;indépendant;Royaume-Uni;X;benedictevans;technologie, économie du secteur;Newsletter et présentations annuelles;oui
+Adam Tooze;historien de l'économie;Columbia (newsletter Chartbook);États-Unis;X;adam_tooze;économie, géopolitique;Lectures croisées, données;oui
+Pascal Boniface;directeur;IRIS;France;X;PascalBoniface;géopolitique;;oui
+Thomas Gomart;directeur;IFRI;France;;;géopolitique;;oui
+Agathe Demarais;analyste;ECFR;France;X;AgatheDemarais;sanctions, géoéconomie;;oui

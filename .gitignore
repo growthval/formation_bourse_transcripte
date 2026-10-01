@@ -2,9 +2,26 @@
 formation/
 diagnostic/
 
+# Audio des vidéos de veille (volumineux, régénérable) ; les transcriptions et fiches sont conservées
+veille/videos/**/*.m4a
+veille/videos/**/*.webm
+veille/videos/**/*.mp4
+veille/videos/**/.dl-*
+
+# Réglages Claude Code personnels (non partagés)
+.claude/settings.local.json
+CLAUDE.local.md
+
 # Python
 .venv/
 venv/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Système / éditeur
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/

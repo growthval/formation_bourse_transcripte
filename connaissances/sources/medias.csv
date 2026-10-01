@@ -1,0 +1,127 @@
+nom;pays;langue;categorie;orientation;rss;site;notes;actif
+# Registre des médias et institutions lus par « vigie flux » et par la commande /veille.
+# Colonnes : categorie = presse | economie | institution | geopolitique | droit | ia | autre ; actif = oui | non.
+# « orientation » est un repère de lecture (ligne éditoriale, propriétaire, financement), pas un jugement : à ajuster.
+# Les adresses RSS sont à vérifier avec : vigie sources --tester (une adresse vide = source consultée à la main).
+Le Monde;France;fr;presse;centre-gauche;https://www.lemonde.fr/rss/une.xml;https://www.lemonde.fr;Référence généraliste. Flux économie : https://www.lemonde.fr/economie/rss_full.xml;oui
+Les Echos;France;fr;economie;libéral (groupe LVMH);;https://www.lesechos.fr;Quotidien économique de référence, payant. Flux RSS à retrouver sur le site;oui
+Le Figaro;France;fr;presse;droite;https://www.lefigaro.fr/rss/figaro_actualites.xml;https://www.lefigaro.fr;Flux économie : https://www.lefigaro.fr/rss/figaro_economie.xml;oui
+Libération;France;fr;presse;gauche;;https://www.liberation.fr;Flux RSS à retrouver sur le site;oui
+France Info;France;fr;presse;service public;https://www.francetvinfo.fr/titres.rss;https://www.francetvinfo.fr;Dépêches en continu;oui
+France 24;France;fr;presse;service public (audiovisuel extérieur);https://www.france24.com/fr/rss;https://www.france24.com;Regard international en français;oui
+RFI;France;fr;presse;service public;https://www.rfi.fr/fr/rss;https://www.rfi.fr;Afrique, Moyen-Orient, Asie;oui
+Mediapart;France;fr;presse;gauche, indépendant;;https://www.mediapart.fr;Enquêtes. Payant;oui
+Alternatives Économiques;France;fr;economie;gauche;;https://www.alternatives-economiques.fr;Pédagogie économique, contrepoint aux Echos;oui
+Le Grand Continent;France;fr;geopolitique;revue (Groupe d'études géopolitiques, ENS);https://legrandcontinent.eu/fr/feed/;https://legrandcontinent.eu;Analyses longues et données, Europe;oui
+INSEE;France;fr;institution;statistique publique;;https://www.insee.fr;Inflation, chômage, PIB : source primaire;oui
+Banque de France;France;fr;institution;banque centrale;;https://www.banque-france.fr;Projections, enquêtes de conjoncture;oui
+AMF;France;fr;institution;régulateur des marchés;;https://www.amf-france.org;Alertes et listes noires (arnaques à l'investissement);oui
+Zonebourse;France;fr;economie;marchés (éditeur de la formation);;https://www.zonebourse.com;Actualités sociétés, consensus, screening;oui
+Boursorama;France;fr;economie;marchés (groupe Société Générale);;https://www.boursorama.com;Cotations. Forums = bruit;oui
+Investir (Les Echos);France;fr;economie;conseils boursiers;;https://investir.lesechos.fr;Hebdo, conseils : à prendre comme opinions;oui
+Financial Times;Royaume-Uni;en;economie;libéral (groupe Nikkei);https://www.ft.com/rss/home;https://www.ft.com;Référence mondiale finance. Payant;oui
+The Economist;Royaume-Uni;en;presse;libéral;https://www.economist.com/finance-and-economics/rss.xml;https://www.economist.com;Hebdo international. Payant;oui
+BBC News;Royaume-Uni;en;presse;service public;https://feeds.bbci.co.uk/news/world/rss.xml;https://www.bbc.com/news;Flux économie : https://feeds.bbci.co.uk/news/business/rss.xml;oui
+The Guardian;Royaume-Uni;en;presse;centre-gauche;https://www.theguardian.com/world/rss;https://www.theguardian.com;Gratuit;oui
+Reuters;Royaume-Uni;en;presse;agence;;https://www.reuters.com;Agence de référence, pas de flux RSS public;oui
+Der Spiegel International;Allemagne;en;presse;centre-gauche;https://www.spiegel.de/international/index.rss;https://www.spiegel.de/international;Allemagne en anglais;oui
+Frankfurter Allgemeine Zeitung;Allemagne;de;presse;centre-droit;;https://www.faz.net;;oui
+Handelsblatt;Allemagne;de;economie;économie, libéral;;https://www.handelsblatt.com;Industrie allemande;oui
+Corriere della Sera;Italie;it;presse;centre;https://xml2.corriereobjects.it/rss/homepage.xml;https://www.corriere.it;;oui
+El País;Espagne;es;presse;centre-gauche;;https://elpais.com;Édition en anglais : english.elpais.com;oui
+NZZ;Suisse;de;presse;libéral-conservateur;https://www.nzz.ch/international.rss;https://www.nzz.ch;;oui
+Le Temps;Suisse;fr;presse;centre;;https://www.letemps.ch;Finance suisse;oui
+Politico Europe;Belgique;en;presse;centre (groupe Axel Springer);https://www.politico.eu/feed/;https://www.politico.eu;Institutions européennes;oui
+Euractiv;Belgique;en;presse;spécialisé Union européenne;;https://www.euractiv.com;;oui
+Notes from Poland;Pologne;en;presse;indépendant;https://notesfrompoland.com/feed/;https://notesfrompoland.com;Pologne et flanc est;oui
+Kyiv Independent;Ukraine;en;presse;indépendant;https://kyivindependent.com/rss/;https://kyivindependent.com;Guerre en Ukraine, point de vue ukrainien;oui
+Meduza;Russie (rédaction en exil);en;presse;indépendant, opposé au Kremlin;https://meduza.io/rss/en/all;https://meduza.io/en;Russie vue par des journalistes en exil;oui
+The Moscow Times;Russie (rédaction en exil);en;presse;indépendant;;https://www.themoscowtimes.com;;oui
+TASS;Russie;en;presse;agence d'État;;https://tass.com;À lire comme position officielle russe, jamais seule;oui
+Banque centrale européenne;Union européenne;en;institution;banque centrale;https://www.ecb.europa.eu/rss/press.html;https://www.ecb.europa.eu;Décisions de taux, discours;oui
+Commission européenne;Union européenne;fr;institution;exécutif européen;;https://commission.europa.eu;Communiqués, DMA, DSA, AI Act;oui
+Eurostat;Union européenne;en;institution;statistique;;https://ec.europa.eu/eurostat;Source primaire;oui
+Bank of England;Royaume-Uni;en;institution;banque centrale;;https://www.bankofengland.co.uk;;oui
+The New York Times;États-Unis;en;presse;centre-gauche;https://rss.nytimes.com/services/xml/rss/nyt/World.xml;https://www.nytimes.com;Flux économie : https://rss.nytimes.com/services/xml/rss/nyt/Business.xml;oui
+The Wall Street Journal;États-Unis;en;economie;centre-droit (News Corp);https://feeds.a.dj.com/rss/RSSWorldNews.xml;https://www.wsj.com;Flux marchés : https://feeds.a.dj.com/rss/RSSMarketsMain.xml;oui
+The Washington Post;États-Unis;en;presse;centre-gauche;;https://www.washingtonpost.com;;oui
+Bloomberg;États-Unis;en;economie;marchés, centre;https://feeds.bloomberg.com/markets/news.rss;https://www.bloomberg.com;Autres flux : https://feeds.bloomberg.com/economics/news.rss et https://feeds.bloomberg.com/politics/news.rss;oui
+CNBC;États-Unis;en;economie;marchés;https://www.cnbc.com/id/100003114/device/rss/rss.html;https://www.cnbc.com;Ton très marchés, court terme;oui
+Associated Press;États-Unis;en;presse;agence;;https://apnews.com;;oui
+Fox News;États-Unis;en;presse;droite;https://moxie.foxnews.com/google-publisher/latest.xml;https://www.foxnews.com;Pour comprendre le camp républicain. À recouper;oui
+Politico;États-Unis;en;presse;centre;https://rss.politico.com/politics-news.xml;https://www.politico.com;Washington;oui
+The Atlantic;États-Unis;en;presse;centre-gauche;;https://www.theatlantic.com;Essais longs;oui
+Foreign Affairs;États-Unis;en;geopolitique;Council on Foreign Relations;https://www.foreignaffairs.com/rss.xml;https://www.foreignaffairs.com;Référence relations internationales;oui
+Foreign Policy;États-Unis;en;geopolitique;centre;https://foreignpolicy.com/feed/;https://foreignpolicy.com;;oui
+War on the Rocks;États-Unis;en;geopolitique;défense et stratégie;https://warontherocks.com/feed/;https://warontherocks.com;;oui
+Lawfare;États-Unis;en;droit;sécurité nationale et droit;;https://www.lawfaremedia.org;;oui
+Just Security;États-Unis;en;droit;droit international et sécurité (NYU);https://www.justsecurity.org/feed/;https://www.justsecurity.org;;oui
+EJIL: Talk!;Europe;en;droit;blog du European Journal of International Law;https://www.ejiltalk.org/feed/;https://www.ejiltalk.org;Droit international public, académique;oui
+Opinio Juris;International;en;droit;blog académique;https://opiniojuris.org/feed/;https://opiniojuris.org;;oui
+Réserve fédérale (Fed);États-Unis;en;institution;banque centrale;https://www.federalreserve.gov/feeds/press_all.xml;https://www.federalreserve.gov;Décisions, minutes, discours;oui
+SEC (EDGAR);États-Unis;en;institution;régulateur;;https://www.sec.gov;Rapports 10-K et 10-Q des sociétés cotées : source primaire;oui
+BLS;États-Unis;en;institution;statistique (emploi, inflation);;https://www.bls.gov;Source primaire;oui
+FRED (Fed de Saint-Louis);États-Unis;en;institution;base de données macro;;https://fred.stlouisfed.org;Séries et graphiques;oui
+FMI;International;en;institution;institution financière;;https://www.imf.org;Perspectives de l'économie mondiale;oui
+Banque mondiale;International;en;institution;institution financière;;https://www.worldbank.org;;oui
+OCDE;International;fr;institution;organisation;;https://www.oecd.org;Perspectives économiques;oui
+BRI (Banque des règlements internationaux);International;en;institution;banque des banques centrales;;https://www.bis.org;Rapports sur la stabilité financière;oui
+ONU Info;International;fr;institution;Nations unies;https://news.un.org/feed/subscribe/fr/news/all/rss.xml;https://news.un.org/fr;;oui
+Cour internationale de Justice;International;fr;droit;juridiction de l'ONU;;https://www.icj-cij.org;Communiqués, affaires en cours;oui
+Cour pénale internationale;International;fr;droit;juridiction;;https://www.icc-cpi.int;;oui
+OMC;International;fr;droit;commerce international;;https://www.wto.org;Différends commerciaux;oui
+The Globe and Mail;Canada;en;presse;centre;;https://www.theglobeandmail.com;;oui
+La Presse;Canada;fr;presse;centre;;https://www.lapresse.ca;;oui
+IFRI;France;fr;geopolitique;think tank;;https://www.ifri.org;;oui
+IRIS;France;fr;geopolitique;think tank;;https://www.iris-france.org;;oui
+Institut Montaigne;France;fr;geopolitique;think tank libéral;;https://www.institutmontaigne.org;;oui
+Fondation Robert Schuman;France;fr;geopolitique;think tank européen;;https://www.robert-schuman.eu;;oui
+ECFR;Europe;en;geopolitique;think tank;https://ecfr.eu/feed/;https://ecfr.eu;;oui
+Chatham House;Royaume-Uni;en;geopolitique;think tank;;https://www.chathamhouse.org;;oui
+CSIS;États-Unis;en;geopolitique;think tank (financements d'entreprises de défense à garder en tête);;https://www.csis.org;;oui
+Carnegie Endowment;États-Unis;en;geopolitique;think tank;;https://carnegieendowment.org;;oui
+Brookings;États-Unis;en;geopolitique;think tank centre-gauche;https://www.brookings.edu/feed/;https://www.brookings.edu;;oui
+RAND;États-Unis;en;geopolitique;recherche (financée en partie par le Pentagone);;https://www.rand.org;;oui
+SIPRI;Suède;en;geopolitique;institut (armement, dépenses militaires);;https://www.sipri.org;Données annuelles sur les dépenses militaires;oui
+International Crisis Group;Belgique;en;geopolitique;ONG de prévention des conflits;;https://www.crisisgroup.org;CrisisWatch mensuel;oui
+Nikkei Asia;Japon;en;economie;centre (groupe Nikkei);https://asia.nikkei.com/rss/feed/nar;https://asia.nikkei.com;Asie vue de Tokyo;oui
+The Japan Times;Japon;en;presse;centre;;https://www.japantimes.co.jp;;oui
+South China Morning Post;Hong Kong;en;presse;propriété d'Alibaba, à pondérer sur la Chine;https://www.scmp.com/rss/91/feed;https://www.scmp.com;;oui
+Caixin Global;Chine;en;economie;économie chinoise, relativement indépendant;;https://www.caixinglobal.com;;oui
+Xinhua;Chine;en;presse;agence d'État;;https://english.news.cn;À lire comme position officielle chinoise, jamais seule;oui
+The Hindu;Inde;en;presse;centre-gauche;;https://www.thehindu.com;;oui
+Times of India;Inde;en;presse;centre;https://timesofindia.indiatimes.com/rssfeedstopstories.cms;https://timesofindia.indiatimes.com;;oui
+Taipei Times;Taïwan;en;presse;proche du DPP (parti au pouvoir);;https://www.taipeitimes.com;;oui
+Focus Taiwan (CNA);Taïwan;en;presse;agence publique;;https://focustaiwan.tw;;oui
+The Korea Herald;Corée du Sud;en;presse;centre;;https://www.koreaherald.com;;oui
+The Straits Times;Singapour;en;presse;proche du gouvernement;;https://www.straitstimes.com;Asie du Sud-Est;oui
+ABC News (Australie);Australie;en;presse;service public;https://www.abc.net.au/news/feed/51120/rss.xml;https://www.abc.net.au/news;Indo-Pacifique;oui
+Al Jazeera English;Qatar;en;presse;financé par le Qatar;https://www.aljazeera.com/xml/rss/all.xml;https://www.aljazeera.com;Monde arabe, Sud global. Pondérer sur le Golfe;oui
+Haaretz;Israël;en;presse;centre-gauche;;https://www.haaretz.com;;oui
+The Times of Israel;Israël;en;presse;centre;https://www.timesofisrael.com/feed/;https://www.timesofisrael.com;;oui
+Al-Monitor;États-Unis;en;presse;spécialisé Moyen-Orient;;https://www.al-monitor.com;;oui
+Jeune Afrique;France;fr;presse;centre;;https://www.jeuneafrique.com;Afrique francophone;oui
+Daily Maverick;Afrique du Sud;en;presse;indépendant;;https://www.dailymaverick.co.za;;oui
+Folha de S.Paulo;Brésil;pt;presse;centre;;https://www.folha.uol.com.br;;oui
+Americas Quarterly;États-Unis;en;geopolitique;Amérique latine;;https://www.americasquarterly.org;;oui
+AI 2027 (AI Futures Project);États-Unis;en;ia;scénario prospectif d'anciens d'OpenAI;;https://ai-2027.com;Scénario de référence, à lire avec ses critiques et les mises à jour de ses auteurs;oui
+Import AI (Jack Clark);États-Unis;en;ia;newsletter d'un cofondateur d'Anthropic;https://importai.substack.com/feed;https://importai.substack.com;Hebdo, recherche et politique publique;oui
+Transformer (Shakeel Hashim);Royaume-Uni;en;ia;newsletter;;https://www.transformernews.ai;Politique et sécurité de l'IA;oui
+AI Snake Oil (Narayanan et Kapoor);États-Unis;en;ia;chercheurs sceptiques (Princeton);https://www.aisnakeoil.com/feed;https://www.aisnakeoil.com;Contrepoint aux récits d'emballement;oui
+Don't Worry About the Vase (Zvi Mowshowitz);États-Unis;en;ia;blog très détaillé, orienté sécurité;https://thezvi.substack.com/feed;https://thezvi.substack.com;Revue hebdomadaire exhaustive;oui
+Simon Willison;Royaume-Uni;en;ia;blog de développeur;https://simonwillison.net/atom/everything/;https://simonwillison.net;Usages concrets, ton sobre;oui
+MIT Technology Review;États-Unis;en;ia;presse technologique;https://www.technologyreview.com/feed/;https://www.technologyreview.com;;oui
+Ars Technica;États-Unis;en;ia;presse technologique;https://feeds.arstechnica.com/arstechnica/index;https://arstechnica.com;;oui
+The Verge;États-Unis;en;ia;presse technologique;https://www.theverge.com/rss/index.xml;https://www.theverge.com;;oui
+Anthropic (blog);États-Unis;en;ia;laboratoire (communication officielle);;https://www.anthropic.com/news;Lire comme communication d'entreprise;oui
+OpenAI (blog);États-Unis;en;ia;laboratoire (communication officielle);;https://openai.com/news;Lire comme communication d'entreprise;oui
+Google DeepMind (blog);Royaume-Uni;en;ia;laboratoire (communication officielle);;https://deepmind.google/discover/blog;Lire comme communication d'entreprise;oui
+Epoch AI;États-Unis;en;ia;institut de recherche (données et tendances);;https://epoch.ai;Calcul, coûts, benchmarks : données;oui
+METR;États-Unis;en;ia;évaluations de capacités;;https://metr.org;Mesure de l'horizon temporel des tâches réalisables par les agents;oui
+Center for AI Safety;États-Unis;en;ia;sécurité de l'IA;;https://safe.ai;Newsletter AI Safety;oui
+Stanford HAI;États-Unis;en;ia;université;;https://hai.stanford.edu;Rapport annuel AI Index;oui
+The Information;États-Unis;en;ia;presse technologique, enquêtes (payant);;https://www.theinformation.com;Coulisses des laboratoires;oui
+Platformer (Casey Newton);États-Unis;en;ia;newsletter;;https://www.platformer.news;;oui
+MarketWatch;États-Unis;en;economie;marchés (Dow Jones);https://feeds.content.dowjones.io/public/rss/mw_topstories;https://www.marketwatch.com;;oui
+Morningstar;États-Unis;en;economie;analyse de fonds et d'actions;;https://www.morningstar.com;;oui
+Trading Economics;International;en;economie;données macroéconomiques;;https://tradingeconomics.com;Calendrier économique, séries par pays;oui
