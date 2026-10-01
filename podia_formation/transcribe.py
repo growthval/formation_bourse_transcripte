@@ -346,8 +346,9 @@ def is_transcribed(dest_stem: Path, audio: Path) -> bool:
     return all(p.is_file() for p in files) and files[-1].stat().st_mtime >= audio.stat().st_mtime
 
 
-def transcribe_file(model, audio: Path, prompt: str, hotwords: str = "", log: Callable[[str], None] = print,
-                    beam_size: int = 5) -> tuple[list[Segment], float | None]:
+def _run(model, audio: Path, prompt: str, hotwords: str, log: Callable[[str], None], beam_size: int,
+         word_timestamps: bool) -> tuple[list[Segment], float]:
+    # hallucination_silence_threshold s'appuie sur le minutage des mots : sans lui, il est ignoré.
     segments, info = model.transcribe(
         str(audio),
         language="fr",
@@ -359,8 +360,8 @@ def transcribe_file(model, audio: Path, prompt: str, hotwords: str = "", log: Ca
         condition_on_previous_text=True,
         initial_prompt=prompt,
         hotwords=hotwords or None,
-        word_timestamps=True,
-        hallucination_silence_threshold=2.0,
+        word_timestamps=word_timestamps,
+        hallucination_silence_threshold=2.0 if word_timestamps else None,
     )
     total = getattr(info, "duration", None) or 0
     out: list[Segment] = []
@@ -374,6 +375,18 @@ def transcribe_file(model, audio: Path, prompt: str, hotwords: str = "", log: Ca
             last_report = now
             log(f"      {seg.end / total:5.0%} ({format_duration(seg.end)} / {format_duration(total)}, "
                 f"{format_duration(now - started)} écoulées)")
+    return out, total
+
+
+def transcribe_file(model, audio: Path, prompt: str, hotwords: str = "", log: Callable[[str], None] = print,
+                    beam_size: int = 5) -> tuple[list[Segment], float | None]:
+    try:
+        out, total = _run(model, audio, prompt, hotwords, log, beam_size, word_timestamps=True)
+    except IndexError:
+        # Bogue de faster-whisper : l'alignement des mots plante sur certains passages
+        # (« boolean index did not match indexed array »). On refait la leçon sans ce minutage.
+        log("      Alignement des mots impossible sur ce fichier : nouvel essai sans minutage des mots.")
+        out, total = _run(model, audio, prompt, hotwords, log, beam_size, word_timestamps=False)
     cleaned = clean_segments(out)
     spoken = sum(s.end - s.start for s in cleaned)
     if total > 60 and spoken < 0.3 * total:

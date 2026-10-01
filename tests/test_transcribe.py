@@ -110,3 +110,23 @@ def test_real_sentences_mentioning_subscriptions_are_kept():
     kept = [s.text for s in clean_segments(segs)]
     assert kept == ["Pour accéder à la liste complète, abonnez-vous à la version Premium de Zonebourse.",
                     "Merci d'avoir regardé, on passe au module suivant."]
+
+
+def test_transcribe_retries_without_word_timestamps_on_alignment_bug(tmp_path: Path):
+    class AlignmentBugModel(FakeModel):
+        def transcribe(self, audio, **kwargs):
+            segs, info = super().transcribe(audio, **kwargs)
+            if not kwargs["word_timestamps"]:
+                return segs, info
+
+            def broken():
+                yield next(segs)
+                raise IndexError("boolean index did not match indexed array along axis 0")
+            return broken(), info
+
+    model = AlignmentBugModel([" Les warrants.", " Les turbos."])
+    messages = []
+    segments, duration = transcribe_file(model, tmp_path / "a.m4a", "contexte", log=messages.append)
+    assert [s.text for s in segments] == ["Les warrants.", "Les turbos."]       # rien en double
+    assert model.kwargs["word_timestamps"] is False and model.kwargs["hallucination_silence_threshold"] is None
+    assert any("sans minutage des mots" in m for m in messages)
