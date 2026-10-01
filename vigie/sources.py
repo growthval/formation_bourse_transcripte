@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Callable
 
 COLONNES_MEDIAS = ["nom", "pays", "langue", "categorie", "orientation", "rss", "site", "notes", "actif"]
+COLONNES_CHAINES = ["nom", "pays", "langue", "theme", "type", "chaine", "id_chaine", "notes", "actif"]
+FLUX_CHAINE = "https://www.youtube.com/feeds/videos.xml?channel_id={id}"
 OUI = {"oui", "o", "yes", "y", "1", "true", "vrai", "x"}
 CATEGORIES = [
     ("presse", "Presse généraliste"),
@@ -43,6 +45,29 @@ class Source:
     def categorie_libelle(self) -> str:
         key = self.categorie.strip().casefold() or "autre"
         return dict(CATEGORIES).get(key, self.categorie.strip() or "Autres")
+
+
+@dataclass
+class Chaine:
+    nom: str
+    pays: str = ""
+    langue: str = ""
+    theme: str = ""
+    type: str = ""
+    chaine: str = ""          # adresse de la chaîne
+    id_chaine: str = ""       # identifiant « UC… », rempli par « vigie chaines »
+    notes: str = ""
+    actif: str = "oui"
+
+    @property
+    def active(self) -> bool:
+        value = self.actif.strip().casefold()
+        return not value or value in OUI
+
+    @property
+    def flux(self) -> str:
+        """Flux Atom des dernières vidéos (fourni par YouTube, sans clé d'API)."""
+        return FLUX_CHAINE.format(id=self.id_chaine.strip()) if self.id_chaine.strip() else ""
 
 
 def _decode(raw: bytes) -> str:
@@ -90,6 +115,72 @@ def malformed_rows(path: Path) -> list[str]:
         if count != expected:
             out.append(f"ligne {n} : {count} colonnes au lieu de {expected} (un « {delim} » en trop ou en moins ?) : {line[:60]}…")
     return out
+
+
+def read_chaines(path: Path) -> list[Chaine]:
+    known = {f.name for f in fields(Chaine)}
+    out: list[Chaine] = []
+    for row in read_rows(path)[1]:
+        clean = {k.casefold(): v for k, v in row.items()}
+        if clean.get("nom"):
+            out.append(Chaine(**{k: v for k, v in clean.items() if k in known}))
+    return out
+
+
+def read_rows(path: Path) -> tuple[list[str], list[dict[str, str]]]:
+    """(colonnes, lignes) d'un registre, clés telles qu'écrites dans l'en-tête, commentaires ignorés."""
+    lines = [l for l in _decode(Path(path).read_bytes()).splitlines() if l.strip() and not l.lstrip().startswith("#")]
+    if not lines:
+        return [], []
+    delim = _delimiter(lines[0])
+    columns = [c.strip() for c in next(csv.reader([lines[0]], delimiter=delim))]
+    rows = []
+    for values in csv.reader(lines[1:], delimiter=delim):
+        if not any(v.strip() for v in values):
+            continue
+        rows.append({c: (values[i].strip() if i < len(values) else "") for i, c in enumerate(columns)})
+    return columns, rows
+
+
+def rewrite_rows(path: Path, mutate: Callable[[dict[str, str]], None], ensure_columns: list[str] = ()) -> int:
+    """Réécrit un registre ligne à ligne (commentaires et ordre conservés), en appliquant ``mutate`` à chaque ligne.
+
+    Les colonnes de ``ensure_columns`` sont ajoutées si absentes. Renvoie le nombre de lignes modifiées.
+    Écrit en UTF-8 avec BOM, ce qu'Excel lit sans casser les accents.
+    """
+    raw_lines = _decode(Path(path).read_bytes()).splitlines()
+    header_idx = next((i for i, l in enumerate(raw_lines) if l.strip() and not l.lstrip().startswith("#")), None)
+    if header_idx is None:
+        return 0
+    delim = _delimiter(raw_lines[header_idx])
+    columns = [c.strip() for c in next(csv.reader([raw_lines[header_idx]], delimiter=delim))]
+    added = [c for c in ensure_columns if c not in columns]
+    columns += added
+    out, changed = [], 0
+
+    def fmt(values: list[str]) -> str:
+        buf = io.StringIO()
+        csv.writer(buf, delimiter=delim, lineterminator="").writerow(values)
+        return buf.getvalue()
+
+    for i, line in enumerate(raw_lines):
+        if i == header_idx:
+            out.append(fmt(columns))
+            continue
+        if not line.strip() or line.lstrip().startswith("#"):
+            out.append(line)
+            continue
+        values = next(csv.reader([line], delimiter=delim))
+        row = {c: (values[k].strip() if k < len(values) else "") for k, c in enumerate(columns)}
+        before = dict(row)
+        mutate(row)
+        if row != before or added:
+            out.append(fmt([row.get(c, "") for c in columns]))
+            changed += row != before
+        else:
+            out.append(line)
+    Path(path).write_text("\n".join(out) + "\n", encoding="utf-8-sig")
+    return changed
 
 
 def missing_columns(path: Path, required: list[str] | None = None) -> list[str]:

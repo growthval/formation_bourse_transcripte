@@ -12,9 +12,14 @@ Cible : `$ARGUMENTS`
 ## 1. Obtenir la transcription
 - **Adresse web** : lancer `.venv/Scripts/python -m vigie video "<adresse>"` (Windows) ou
   `.venv/bin/python -m vigie video "<adresse>"` (macOS/Linux). L'outil prend les sous-titres fournis par
-  la chaîne s'il y en a, sinon télécharge l'audio et transcrit avec Whisper (long : prévenir l'utilisateur,
-  proposer `--rapide` pour les sous-titres automatiques si la vidéo est longue et le sujet peu technique).
-  Si YouTube réclame un moteur JavaScript, suivre le message de l'outil (Deno) et relancer.
+  la chaîne s'il y en a, sinon les sous-titres automatiques de YouTube (ceux du panneau « Transcription »
+  du site : quelques secondes, sans téléchargement). Sans sous-titres, il télécharge l'audio et transcrit
+  avec Whisper (long : prévenir l'utilisateur). Option `--whisper` pour une transcription plus fidèle quand
+  les sous-titres automatiques sont trop mauvais (noms propres, chiffres). Si YouTube réclame un moteur
+  JavaScript, suivre le message de l'outil (Deno) et relancer.
+- **Mots-clés ou sujet sans adresse** : `python -m vigie chercher <mots-clés> --nombre 10` liste des
+  vidéos (titre, chaîne, durée, vues, adresse) dans `veille/videos/recherches/` ; choisir avec l'utilisateur
+  en appliquant la grille de `connaissances/methode/sources.md` (identité réelle, méthode, ce qui est vendu).
 - **Dossier ou titre** : le retrouver dans `veille/videos/index.md` ou par `Glob` sur `veille/videos/*`.
 - Lire `veille/videos/<dossier>/transcription.md` (horodatages) et `video.json` (chaîne, date, chapitres).
 

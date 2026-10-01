@@ -30,3 +30,14 @@
   une colonne, la valeur « oui » glisse hors de la colonne « actif » et la source est désactivée sans erreur.
 - **Impact** : `vigie sources` signale désormais les lignes mal formées ; consigne ajoutée en tête des CSV.
 - **Source** : deux sources (ECFR, Times of Israel) devenues inactives après l'ajout d'une note.
+
+## LRN-005 — La « transcription » de YouTube se récupère sans télécharger la vidéo
+- **Date** : 2026-10-01
+- **Découverte** : le panneau « Transcription » du site YouTube affiche les sous-titres automatiques
+  (« Français (générés automatiquement) »). yt-dlp les télécharge directement (quelques secondes, pas de
+  vidéo, pas de Whisper), avec une piste d'origine « fr-orig » à préférer à la traduction automatique « fr ».
+  Les vidéos doublées automatiquement ont aussi plusieurs pistes audio : pour Whisper, il faut demander la
+  piste d'origine, sinon on peut transcrire un doublage.
+- **Impact** : `vigie video` prend par défaut les sous-titres (chaîne, puis automatiques) ; `--whisper`
+  reste disponible pour une transcription plus fidèle (noms, chiffres).
+- **Source** : capture d'écran de l'utilisateur (vidéo Finary), documentation yt-dlp.

@@ -48,7 +48,7 @@ complot, l'incertitude écrite, et jamais d'ordre d'achat ou de vente : des opti
    ```
    Détail et dépannage : [`docs/outil-transcription.md`](docs/outil-transcription.md).
 4. **Vérifier les flux de presse** : `vigie sources --tester`, puis corriger les adresses en erreur dans
-   `connaissances/sources/medias.csv`.
+   `connaissances/sources/medias.csv`. Puis `vigie chaines` pour suivre les vidéos des chaînes de `youtube.csv`.
 5. **Ouvrir Claude Code** à la racine du dépôt et accepter le dialogue de confiance. Il lit `CLAUDE.md`,
    charge la mémoire et les commandes. Première session conseillée :
    `/formation synthèse` → `/veille` → `/analyse-video "<adresse de la vidéo Finary>"` → `/anticiper revue`.
@@ -76,9 +76,11 @@ Trois agents travaillent derrière ces commandes : `chercheur` (recherche multi-
 | Commande | Rôle |
 |---|---|
 | `formation …` | Inventaire, audio, transcription Whisper et planning de la formation Podia ([guide](docs/outil-transcription.md)) |
-| `vigie video "<adresse>"` | Récupère une vidéo YouTube : sous-titres de la chaîne s'ils existent, sinon audio + Whisper ; prépare `fiche.md`. Options : `--rapide` (sous-titres automatiques), `--whisper`, `--modele large-v3-turbo` |
-| `vigie flux --jours 2 [--filtre ia,taïwan]` | Digest Markdown des derniers articles des sources (flux RSS) dans `veille/journal/` |
-| `vigie sources --tester` | Vérifie le registre des sources et interroge chaque flux |
+| `vigie video "<adresse>"` | Récupère la transcription d'une vidéo YouTube en quelques secondes : sous-titres de la chaîne s'ils existent, sinon les sous-titres automatiques (la « Transcription » du site), sans télécharger la vidéo ; prépare `fiche.md`. `--whisper` : audio + Whisper, plus fidèle mais long (`--modele large-v3-turbo` pour accélérer) |
+| `vigie chercher <mots-clés> [--nombre 10]` | Cherche des vidéos YouTube par mots-clés (sans clé d'API) et enregistre la liste dans `veille/videos/recherches/` |
+| `vigie chaines` | Retrouve l'identifiant des chaînes de `youtube.csv` : leurs nouvelles vidéos entrent ensuite dans le digest |
+| `vigie flux --jours 2 [--filtre ia,taïwan]` | Digest Markdown des derniers articles des sources (flux RSS), des nouvelles vidéos des chaînes suivies et des vidéos citées dans les articles, dans `veille/journal/` |
+| `vigie sources --tester` | Vérifie les registres et interroge chaque flux (médias et chaînes) ; signale les flux figés |
 
 Sous macOS/Linux : `.venv/bin/python -m podia_formation …` et `.venv/bin/python -m vigie …`.
 YouTube demande un moteur JavaScript pour yt-dlp : `winget install DenoLand.Deno` (Windows) ou Deno/Node sur les autres systèmes.

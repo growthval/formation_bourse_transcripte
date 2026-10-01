@@ -14,9 +14,14 @@ un nombre = période en jours ; un thème restreint les zones, ex. `/veille 3 IA
 1. Lancer le digest des flux (depuis la racine du dépôt) :
    `.venv/Scripts/python -m vigie flux --jours N` (Windows) ou `.venv/bin/python -m vigie flux --jours N`
    (macOS/Linux) ; sans environnement, `python -m vigie flux --jours N`. Avec un thème : `--filtre mot1,mot2`.
-2. Lire `veille/journal/AAAA-MM-JJ-flux.md`. Les flux en erreur ne bloquent pas : les sources concernées
-   sont couvertes par la recherche web de l'étape 2. Signaler les erreurs répétées à la fin (adresse à
-   corriger dans `connaissances/sources/medias.csv`).
+2. Lire `veille/journal/AAAA-MM-JJ-flux.md`, y compris les sections « Nouvelles vidéos des chaînes
+   suivies » et « Vidéos citées dans les articles » : proposer à l'utilisateur les vidéos qui méritent
+   `/analyse-video`, sans les analyser pendant la veille. Les flux en erreur ne bloquent pas : les sources
+   concernées sont couvertes par la recherche web de l'étape 2. Signaler les erreurs répétées à la fin
+   (adresse à corriger dans `connaissances/sources/medias.csv`).
+3. Les sources sans flux marquées « lire le site » dans le registre (Zonebourse pour les marchés :
+   https://www.zonebourse.com/actualite-bourse/ ; Les Echos, Reuters…) sont ouvertes par le chercheur de
+   la zone concernée avec WebFetch.
 
 ## 2. Rechercher par zone (en parallèle, agents `chercheur`)
 Lancer un agent `chercheur` par zone, en parallèle (les zones sont indépendantes), avec pour consigne :

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -62,14 +63,16 @@ def test_meta_from_info_and_folder_name():
     assert bare.dossier.startswith("sans-date - ")
 
 
-def test_choose_subtitles_prefers_channel_subtitles_then_auto_only_if_rapide():
+def test_choose_subtitles_prefers_channel_subtitles_then_youtube_automatic_ones():
+    from vigie.video import first_french
+
     meta = VideoMeta.from_info(INFO)
-    assert choose_subtitles(meta) is None
-    assert choose_subtitles(meta, rapide=True) == ("fr-orig", True)
+    assert choose_subtitles(meta) == ("fr-orig", True)              # par défaut : la transcription de YouTube
+    assert choose_subtitles(meta, automatiques=False) is None
     meta.sous_titres = ["en", "fr-FR"]
-    assert choose_subtitles(meta) == ("fr-FR", False)
-    meta.sous_titres = ["en"]
-    assert choose_subtitles(meta, rapide=True) == ("fr-orig", True)
+    assert choose_subtitles(meta) == ("fr-FR", False)               # la chaîne a relu ses sous-titres
+    assert first_french(["fr", "fr-orig", "en"]) == "fr-orig"       # piste d'origine avant la traduction automatique
+    assert first_french(["fr-FR", "fr"]) == "fr" and first_french(["fr-CA"]) == "fr-CA" and first_french(["en"]) is None
 
 
 def test_vtt_to_segments_dedupes_youtube_rolling_lines(tmp_path: Path):
@@ -160,11 +163,41 @@ def test_run_video_with_channel_subtitles(tmp_path: Path, monkeypatch):
     assert any("déjà présente" in l for l in logs)
 
 
-def test_run_video_falls_back_to_audio_and_whisper(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(video, "fetch_info", lambda url: INFO)
-    monkeypatch.setattr(video, "download_subtitles", lambda *a, **k: pytest.fail("pas de sous-titres fournis"))
+def test_run_video_uses_youtube_transcript_by_default_and_whisper_on_request(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(video, "fetch_info", lambda url: INFO)              # pas de sous-titres de la chaîne, auto « fr-orig »
 
-    def fake_audio(source, dest_stem, subs_stem, log):
+    def fake_subs(url, lang, auto, dest_stem):
+        assert (lang, auto) == ("fr-orig", True)
+        p = dest_stem.with_name(dest_stem.name + ".fr-orig.vtt")
+        p.write_text(AUTO_VTT, encoding="utf-8")
+        return p
+    monkeypatch.setattr(video, "download_subtitles", fake_subs)
+    monkeypatch.setattr(video, "download_audio", lambda *a, **k: pytest.fail("pas d'audio avec les sous-titres"))
+    out = tmp_path / "videos"
+    d = run_video(INFO["webpage_url"], out, FakeTranscripteur(), log=lambda _: None)
+    assert "aujourd'hui on parle de 2027" in (d / "transcription.txt").read_text(encoding="utf-8")
+    assert VideoMeta.load(d / "video.json").transcription.startswith("sous-titres automatiques YouTube (fr-orig)")
+    # --whisper : on ignore les sous-titres, on télécharge l'audio d'origine et on transcrit
+    calls = {}
+
+    def fake_audio(source, dest_stem, subs_stem, log, fmt=None):
+        calls["fmt"] = fmt
+        p = dest_stem.with_name(dest_stem.name + ".m4a")
+        p.write_bytes(b"audio")
+        return p, []
+    monkeypatch.setattr(video, "download_subtitles", lambda *a, **k: pytest.fail("--whisper ignore les sous-titres"))
+    monkeypatch.setattr(video, "download_audio", fake_audio)
+    t = FakeTranscripteur()
+    run_video(INFO["webpage_url"], out, t, whisper=True, forcer=True, log=lambda _: None)
+    assert t.calls == 1 and calls["fmt"] == video.AUDIO_FORMAT and "original" in calls["fmt"]
+    assert VideoMeta.load(d / "video.json").transcription == "Whisper large-v3 (CPU)"
+
+
+def test_run_video_falls_back_to_audio_and_whisper(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(video, "fetch_info", lambda url: dict(INFO, automatic_captions={}))
+    monkeypatch.setattr(video, "download_subtitles", lambda *a, **k: pytest.fail("pas de sous-titres du tout"))
+
+    def fake_audio(source, dest_stem, subs_stem, log, fmt=None):
         assert source.kind == "youtube" and source.duration_s == 1500
         p = dest_stem.with_name(dest_stem.name + ".m4a")
         p.write_bytes(b"audio")
@@ -182,9 +215,10 @@ def test_run_video_falls_back_to_audio_and_whisper(tmp_path: Path, monkeypatch):
     run_video(INFO["webpage_url"], out, t, log=lambda _: None)
     assert t.calls == 1 and "On parle de 2027." in (d / "transcription.txt").read_text(encoding="utf-8")
     assert VideoMeta.load(d / "video.json").transcription == "Whisper large-v3 (CPU)"
-    # 3) --rapide : sous-titres automatiques acceptés, mais s'ils échouent on repasse par l'audio + Whisper
+    # 3) sous-titres automatiques annoncés mais impossibles à récupérer : on repasse par l'audio + Whisper
+    monkeypatch.setattr(video, "fetch_info", lambda url: INFO)
     monkeypatch.setattr(video, "download_subtitles", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("quota")))
-    run_video(INFO["webpage_url"], out, t, rapide=True, forcer=True, log=lambda _: None)
+    run_video(INFO["webpage_url"], out, t, forcer=True, log=lambda _: None)
     assert t.calls == 2
 
 
@@ -194,15 +228,84 @@ def test_cli_video_reports_failures(monkeypatch, capsys, tmp_path: Path):
     calls = []
 
     def fake_run(url, out, transcripteur, **kw):
-        calls.append((url, kw["rapide"], kw["whisper"]))
+        calls.append((url, kw["whisper"]))
         if "mauvaise" in url:
             raise RuntimeError("ERROR: n challenge solving failed: no JS runtime (Deno) found")
         return out
     monkeypatch.setattr("vigie.video.run_video", fake_run)
     code = cli.main(["video", "https://youtube.com/watch?v=ok", "https://youtube.com/watch?v=mauvaise",
-                     "--rapide", "--sortie", str(tmp_path)])
+                     "--whisper", "--sortie", str(tmp_path)])
     out = capsys.readouterr().out
-    assert code == 0 and calls == [("https://youtube.com/watch?v=ok", True, False), ("https://youtube.com/watch?v=mauvaise", True, False)]
+    assert code == 0 and calls == [("https://youtube.com/watch?v=ok", True), ("https://youtube.com/watch?v=mauvaise", True)]
     assert "1 vidéo(s) en échec sur 2" in out and "Deno" in out
     assert cli.main(["video", "https://youtube.com/watch?v=mauvaise", "--sortie", str(tmp_path)]) == 1
     assert isinstance(Transcripteur(log=lambda _: None).label, str)
+
+
+class FakeYDL:
+    """Imite yt_dlp.YoutubeDL pour la recherche et les chaînes."""
+    answers: dict = {}
+    opts_seen: list = []
+
+    def __init__(self, opts):
+        FakeYDL.opts_seen.append(opts)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def extract_info(self, url, download=False, **kw):
+        return FakeYDL.answers[url]
+
+
+def test_search_videos_and_render(monkeypatch, tmp_path: Path):
+    import yt_dlp
+
+    from vigie.video import normalize_entry, render_search, search_videos
+
+    FakeYDL.answers = {"ytsearch2:ia 2027 finary": {"entries": [
+        {"id": "UUSUEcZg5Cw", "title": "Personne n'est prêt pour 2027", "channel": "Finary", "duration": 1500, "view_count": 123456,
+         "url": "https://www.youtube.com/watch?v=UUSUEcZg5Cw"},
+        {"id": "abc", "title": "Autre | vidéo", "uploader": "Chaîne", "upload_date": "20260930", "url": "abc"}, None]}}
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", FakeYDL)
+    results = search_videos("ia 2027 finary", 2)
+    assert [r["url"] for r in results] == ["https://www.youtube.com/watch?v=UUSUEcZg5Cw", "https://www.youtube.com/watch?v=abc"]
+    assert results[1]["date"] == "2026-09-30" and results[0]["chaine"] == "Finary"
+    assert FakeYDL.opts_seen[-1]["extract_flat"] is True
+    md = render_search("ia 2027 finary", results, datetime(2026, 10, 1, 20, 0))
+    assert "| Personne n'est prêt pour 2027 | Finary | ? | 25 min 00 s | 123 456 | <https://www.youtube.com/watch?v=UUSUEcZg5Cw> |" in md
+    assert "Autre ¦ vidéo" in md
+    assert normalize_entry({"id": "x"})["url"] == "https://www.youtube.com/watch?v=x"
+
+
+def test_channel_id_and_cli_chaines(monkeypatch, tmp_path: Path, capsys):
+    import yt_dlp
+
+    import vigie.cli as cli
+    from vigie.sources import read_chaines
+    from vigie.video import channel_id
+
+    FakeYDL.answers = {"https://www.youtube.com/@Finary": {"id": "UUxyz", "channel_id": "UCfinary0001", "channel": "Finary"},
+                       "https://www.youtube.com/@inconnue": {"id": "PLxxx"}}
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", FakeYDL)
+    assert channel_id("https://www.youtube.com/@Finary") == "UCfinary0001"
+    assert channel_id("https://www.youtube.com/@inconnue") == ""
+    csv = tmp_path / "youtube.csv"
+    csv.write_text("nom;pays;langue;theme;type;chaine;notes;actif\n# commentaire\n"
+                   "Finary;France;fr;finance;explicatif;https://www.youtube.com/@Finary;note, avec virgule;oui\n"
+                   "Inconnue;;;;;https://www.youtube.com/@inconnue;;oui\n"
+                   "Désactivée;;;;;https://www.youtube.com/@off;;non\n", encoding="utf-8")
+    assert cli.main(["chaines", "--chaines", str(csv)]) == 0
+    out = capsys.readouterr().out
+    assert "trouvé Finary : UCfinary0001" in out and "identifiant non trouvé" in out and "1 identifiant(s) écrit(s)" in out
+    text = csv.read_bytes().decode("utf-8-sig")
+    assert text.splitlines()[0] == "nom;pays;langue;theme;type;chaine;notes;actif;id_chaine" and "# commentaire" in text
+    chaines = {c.nom: c for c in read_chaines(csv)}
+    assert chaines["Finary"].id_chaine == "UCfinary0001" and chaines["Finary"].notes == "note, avec virgule"
+    assert chaines["Finary"].flux == "https://www.youtube.com/feeds/videos.xml?channel_id=UCfinary0001"
+    assert chaines["Inconnue"].flux == "" and not chaines["Désactivée"].active
+    # Relance : rien à faire, fichier inchangé.
+    before = csv.read_bytes()
+    assert cli.main(["chaines", "--chaines", str(csv)]) == 0 and csv.read_bytes() == before

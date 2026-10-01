@@ -3,7 +3,7 @@
 
 ## BLK-001 — Lien de la vidéo Finary « Personne n'est prêt pour 2027 »
 - **Date** : 2026-10-01
-- **Statut** : actif
+- **Statut** : résolu (adresse fournie le 01/10/2026 : https://www.youtube.com/watch?v=UUSUEcZg5Cw, dans `veille/a-traiter.md`)
 - **Problème** : la vidéo est citée comme première à analyser, mais son adresse exacte n'a pas pu être
   retrouvée depuis la session cloud (YouTube inaccessible, recherche web sans résultat sur ce titre).
 - **Cause racine** : accès réseau restreint de la session ; titre peut-être approximatif.

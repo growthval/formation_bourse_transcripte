@@ -42,3 +42,14 @@ désactivée. `vigie sources` signale les lignes mal formées.
    méthode visible, corrections publiées, intérêts déclarés).
 2. Ajouter une ligne dans le bon fichier, remplir « orientation » et « notes » (ce qui doit rester en tête en la lisant).
 3. Relancer `vigie sources --tester` si un flux RSS a été ajouté.
+
+## Chaînes YouTube : nouvelles vidéos dans le digest
+
+YouTube publie pour chaque chaîne un flux de ses dernières vidéos, sans clé d'API. Il faut l'identifiant
+de la chaîne (« UC… »), que `vigie chaines` retrouve à partir de l'adresse et écrit dans la colonne
+`id_chaine` de `youtube.csv`. Ensuite, `vigie flux` ajoute une section « Nouvelles vidéos des chaînes
+suivies » au digest, et `/veille` les voit. Après avoir ajouté une chaîne : relancer `vigie chaines`.
+
+Pour chercher des vidéos par mots-clés : `vigie chercher ia 2027 emploi --nombre 15` (liste enregistrée
+dans `veille/videos/recherches/`). Les vidéos citées par les articles du digest sont listées dans la
+section « Vidéos citées dans les articles ».

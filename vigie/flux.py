@@ -16,7 +16,7 @@ from html.entities import name2codepoint
 from pathlib import Path
 from typing import Callable, Iterable
 
-from .sources import CATEGORIES, Source, read_sources, short_error
+from .sources import CATEGORIES, Chaine, Source, read_chaines, read_sources, short_error
 
 USER_AGENT = "Mozilla/5.0 (compatible; vigie/0.1; veille personnelle)"
 # Certains sites refusent (403) tout ce qui ne ressemble pas à un navigateur : second essai avec cet en-tête.
@@ -26,6 +26,9 @@ RESUME_MAX = 280
 _TAG_RE = re.compile(r"<[^>]+>")
 _XML_ENTITIES = {"amp", "lt", "gt", "quot", "apos"}
 _ENTITY_RE = re.compile(rb"&([A-Za-z][A-Za-z0-9]*);")
+_BARE_AMP_RE = re.compile(rb"&(?!(?:[A-Za-z][A-Za-z0-9]*|#[0-9]+|#x[0-9A-Fa-f]+);)")
+_CONTROL_RE = re.compile(rb"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+YOUTUBE_RE = re.compile(r"https?://(?:www\.|m\.)?(?:youtube\.com/(?:watch\?v=|shorts/)|youtu\.be/)([\w-]{11})")
 _DATE_FORMATS = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%d/%m/%Y %H:%M", "%d/%m/%Y", "%Y%m%d",
                  "%a, %d %b %Y %H:%M:%S", "%d %b %Y %H:%M:%S", "%d %b %Y")
 
@@ -121,7 +124,9 @@ def sanitize_xml(data: bytes) -> bytes:
     if starts and min(starts) > 0:
         data = data[min(starts):]
     data = data.lstrip(b"\xef\xbb\xbf \t\r\n")
-    return _ENTITY_RE.sub(_entity, data)
+    data = _ENTITY_RE.sub(_entity, data)
+    data = _BARE_AMP_RE.sub(b"&amp;", data)        # « AT&T » : esperluette nue, interdite en XML
+    return _CONTROL_RE.sub(b"", data)
 
 
 def clean(text: str, limit: int = RESUME_MAX) -> str:
@@ -148,9 +153,10 @@ def parse_feed(data: bytes, source: str) -> list[Entree]:
     out: list[Entree] = []
     if kind == "feed":                                     # Atom
         for e in root.findall("{*}entry"):
+            desc = e.find(".//{*}description")              # flux YouTube : media:group/media:description
             out.append(Entree(source, clean(_text(e, "title"), 300), _atom_link(e),
                               parse_date(_text(e, "published", "updated")),
-                              clean(_text(e, "summary", "content"))))
+                              clean(_text(e, "summary", "content") or (desc.text if desc is not None else ""))))
     else:                                                  # RSS 2.0 (channel/item) ou RSS 1.0 (item à la racine)
         for it in root.iterfind(".//{*}item"):      # iterfind : le joker {*} ne marche pas avec iter()
             lien = _text(it, "link")
@@ -178,6 +184,19 @@ def matches(entry: Entree, keywords: Iterable[str]) -> bool:
     return any(w in hay for w in words)
 
 
+def cited_videos(entries: Iterable[Entree]) -> list[tuple[str, Entree]]:
+    """Adresses YouTube citées dans les articles (source externe qui renvoie vers une vidéo)."""
+    seen: set[str] = set()
+    out: list[tuple[str, Entree]] = []
+    for e in entries:
+        for m in YOUTUBE_RE.finditer(f"{e.lien} {e.resume}"):
+            vid = m.group(1)
+            if vid not in seen:
+                seen.add(vid)
+                out.append((f"https://www.youtube.com/watch?v={vid}", e))
+    return out
+
+
 def parse_keywords(value: str) -> list[str]:
     return [k.strip() for k in (value or "").split(",") if k.strip()]
 
@@ -199,14 +218,17 @@ def _date_label(entry: Entree, now: datetime) -> str:
     return f"{local:%d/%m %H:%M}" if (now - entry.date) < timedelta(days=300) else f"{local:%d/%m/%Y}"
 
 
-def render_digest(sources: list[Source], results: dict[str, list[Entree]], failures: list[tuple[Source, str]],
-                  now: datetime, days: float, keywords: list[str]) -> str:
+def render_digest(sources: list[Source], results: dict[str, list[Entree]], failures: list[tuple[str, str]],
+                  now: datetime, days: float, keywords: list[str], videos: dict[str, list[Entree]] | None = None,
+                  cited: list[tuple[str, Entree]] | None = None) -> str:
     local = now.astimezone()
     total = sum(len(v) for v in results.values())
+    nvid = sum(len(v) for v in (videos or {}).values())
     hours = int(round(days * 24))
     lines = [f"# Flux de presse du {local:%d/%m/%Y}", "",
              f"Généré le {local:%d/%m/%Y à %H:%M} · {hours} dernières heures · {len(results)} source(s) lue(s) · "
-             f"{total} article(s)" + (f" · filtre : {', '.join(keywords)}" if keywords else ""), "",
+             f"{total} article(s)" + (f" · {len(videos or {})} chaîne(s), {nvid} vidéo(s)" if videos else "")
+             + (f" · filtre : {', '.join(keywords)}" if keywords else ""), "",
              "> Ce fichier n'est qu'une liste de titres. La lecture, le recoupement et l'analyse se font avec la "
              "commande `/veille` dans Claude Code, qui ouvre les articles utiles.", ""]
     by_cat: dict[str, list[Source]] = {}
@@ -229,20 +251,49 @@ def render_digest(sources: list[Source], results: dict[str, list[Entree]], failu
                 head = f"[{title}]({e.lien})" if e.lien else title
                 lines.append(f"- {head} — {_date_label(e, now)}" + (f" : {e.resume}" if e.resume else ""))
             lines.append("")
+    if videos:
+        lines += ["## Nouvelles vidéos des chaînes suivies", "",
+                  "Pour en analyser une : `vigie video \"<adresse>\"` puis `/analyse-video`.", ""]
+        for name, entries in videos.items():
+            if not entries:
+                continue
+            lines.append(f"### {name}")
+            lines.append("")
+            for e in entries:
+                lines.append(f"- [{e.titre or e.lien}]({e.lien}) — {_date_label(e, now)}" + (f" : {e.resume}" if e.resume else ""))
+            lines.append("")
+    if cited:
+        lines += ["## Vidéos citées dans les articles", ""]
+        lines += [f"- <{url}> — citée par {e.source} : [{e.titre}]({e.lien})" for url, e in cited]
+        lines.append("")
     if failures:
         lines += ["## Flux en erreur", "",
                   "Adresse à vérifier dans `connaissances/sources/medias.csv` (ou source à consulter à la main) :", ""]
-        lines += [f"- {s.nom} : {msg}" for s, msg in failures]
+        lines += [f"- {name} : {msg}" for name, msg in failures]
         lines.append("")
     return "\n".join(lines)
 
 
 # --- Commande ----------------------------------------------------------------------
 
+def _collect(name: str, url: str, since: datetime, words: list[str], limit: int, fetch_fn, failures, log) -> list[Entree] | None:
+    try:
+        entries = parse_feed(fetch_fn(url), name)
+    except Exception as exc:
+        failures.append((name, short_error(exc)))
+        log(f"  ERREUR {name} : {short_error(exc)}")
+        return None
+    kept = [e for e in entries if (e.date is None or e.date >= since) and matches(e, words)]
+    kept.sort(key=lambda e: (e.date is None, -(e.date.timestamp() if e.date else 0)))
+    return kept[:limit]
+
+
 def run_flux(sources_path: Path, out_dir: Path, days: float = 2, keywords: Iterable[str] = (),
              only: Iterable[str] = (), max_per_source: int = 20, fetch_fn: Callable[[str], bytes] = fetch,
-             now: datetime | None = None, log: Callable[[str], None] = print) -> Path:
-    """Interroge les flux et écrit ``<sortie>/AAAA-MM-JJ-flux.md``. Les flux en erreur n'arrêtent pas les autres."""
+             now: datetime | None = None, log: Callable[[str], None] = print,
+             chaines_path: Path | None = None) -> Path:
+    """Interroge les flux (presse, puis chaînes YouTube si ``chaines_path`` est donné) et écrit
+    ``<sortie>/AAAA-MM-JJ-flux.md``. Un flux en erreur n'arrête pas les autres."""
     all_sources = read_sources(sources_path)
     sources = select_sources(all_sources, only)
     if not sources:
@@ -252,19 +303,22 @@ def run_flux(sources_path: Path, out_dir: Path, days: float = 2, keywords: Itera
     since = now - timedelta(days=days)
     words = list(keywords)
     results: dict[str, list[Entree]] = {}
-    failures: list[tuple[Source, str]] = []
+    failures: list[tuple[str, str]] = []
     for s in sources:
-        try:
-            entries = parse_feed(fetch_fn(s.rss), s.nom)
-        except Exception as exc:
-            failures.append((s, short_error(exc)))
-            log(f"  ERREUR {s.nom} : {short_error(exc)}")
-            continue
-        kept = [e for e in entries if (e.date is None or e.date >= since) and matches(e, words)]
-        kept.sort(key=lambda e: (e.date is None, -(e.date.timestamp() if e.date else 0)))
-        results[s.nom] = kept[:max_per_source]
-        log(f"  {s.nom} : {len(results[s.nom])} article(s)")
+        kept = _collect(s.nom, s.rss, since, words, max_per_source, fetch_fn, failures, log)
+        if kept is not None:
+            results[s.nom] = kept
+            log(f"  {s.nom} : {len(kept)} article(s)")
+    videos: dict[str, list[Entree]] = {}
+    if chaines_path and Path(chaines_path).is_file() and not list(only):
+        chaines = [c for c in read_chaines(chaines_path) if c.active and c.flux]
+        for c in chaines:
+            kept = _collect(c.nom, c.flux, since, words, max_per_source, fetch_fn, failures, log)
+            if kept is not None:
+                videos[c.nom] = kept
+                log(f"  {c.nom} : {len(kept)} vidéo(s)")
+    cited = cited_videos(e for entries in results.values() for e in entries)
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{now.astimezone():%Y-%m-%d}-flux.md"
-    path.write_text(render_digest(sources, results, failures, now, days, words), encoding="utf-8")
+    path.write_text(render_digest(sources, results, failures, now, days, words, videos, cited), encoding="utf-8")
     return path

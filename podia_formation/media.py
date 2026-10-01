@@ -323,8 +323,11 @@ _LEFTOVER_RE = re.compile(r"\.(?:part|ytdl|tmp)(?:-Frag\d+)?$")
 
 
 def download_audio(source: MediaSource, dest_stem: Path, subs_stem: Path | None = None,
-                   log: Callable[[str], None] = print) -> tuple[Path, list[Path]]:
-    """Télécharge la piste audio d'une source : renvoie le .m4a et les éventuels sous-titres."""
+                   log: Callable[[str], None] = print, fmt: str | None = None) -> tuple[Path, list[Path]]:
+    """Télécharge la piste audio d'une source : renvoie le .m4a et les éventuels sous-titres.
+
+    ``fmt`` : sélecteur de format yt-dlp (défaut : piste audio seule, sinon la plus petite vidéo).
+    """
     from yt_dlp import YoutubeDL
     from yt_dlp.utils import DownloadError
 
@@ -333,7 +336,7 @@ def download_audio(source: MediaSource, dest_stem: Path, subs_stem: Path | None 
     raw_stem = dest_stem.parent / f".dl-{hashlib.sha1(dest_stem.name.encode()).hexdigest()[:10]}"
     base_opts = {
         # Piste audio seule si le lecteur en propose une, sinon la plus petite vidéo (l'audio en est extrait).
-        "format": "ba/b[height<=480]/wa*/w",
+        "format": fmt or "ba/b[height<=480]/wa*/w",
         "outtmpl": _outtmpl(raw_stem),
         "http_headers": dict(source.headers),
         "quiet": True,

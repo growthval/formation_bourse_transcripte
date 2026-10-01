@@ -1,4 +1,5 @@
-"""Vidéos YouTube (ou tout site lu par yt-dlp) : informations, sous-titres ou audio + Whisper, fiche d'analyse.
+"""Vidéos YouTube (ou tout site lu par yt-dlp) : informations, sous-titres ou audio + Whisper, fiche d'analyse,
+recherche par mots-clés, identifiant des chaînes.
 
 Réutilise l'outil de la formation (``podia_formation``) : téléchargement audio avec yt-dlp, transcription
 faster-whisper, nettoyage et mise en forme des paragraphes. Chaque vidéo a son dossier dans
@@ -29,6 +30,8 @@ CONTEXTE = ("Transcription d'une vidéo en français sur l'économie, la bourse,
 TERMES = ["ETF", "PEA", "CAC 40", "S&P 500", "Nasdaq", "Fed", "BCE", "OpenAI", "Anthropic", "DeepMind",
           "Nvidia", "AGI", "LLM", "OTAN", "Taïwan", "Zonebourse", "Finary"]
 DOSSIER_MAX = 110
+# Piste audio d'origine d'abord : YouTube ajoute des doublages automatiques dans d'autres langues.
+AUDIO_FORMAT = "ba[format_note*=original]/ba[language^=fr]/ba/b[height<=480]/wa*/w"
 FICHE_MODELE = RACINE / "modeles" / "fiche-video.md"
 FICHE_DEFAUT = """# {{titre}}
 
@@ -117,23 +120,80 @@ def fetch_info(url: str) -> dict:
 
 
 def first_french(langs: list[str]) -> str | None:
-    return next((l for l in langs if l.casefold().startswith("fr")), None)
+    """Piste française : l'originale (« fr-orig ») avant une traduction automatique (« fr », « fr-FR »)."""
+    fr = [l for l in langs if l.casefold().startswith("fr")]
+    for keep in (lambda l: l.casefold().endswith("-orig"), lambda l: l.casefold() == "fr", lambda l: True):
+        found = next((l for l in fr if keep(l)), None)
+        if found:
+            return found
+    return None
 
 
-def choose_subtitles(meta: VideoMeta, rapide: bool = False) -> tuple[str, bool] | None:
+def choose_subtitles(meta: VideoMeta, automatiques: bool = True) -> tuple[str, bool] | None:
     """(langue, automatiques ?) des sous-titres à utiliser au lieu de Whisper, ou None.
 
-    Les sous-titres fournis par la chaîne sont relus par elle : on les préfère. Les sous-titres
-    automatiques de YouTube (sans ponctuation, erreurs sur les noms) ne servent qu'avec ``--rapide``.
+    Ordre : sous-titres fournis par la chaîne (relus), puis sous-titres automatiques de YouTube (ceux du
+    panneau « Transcription » du site : immédiats, sans téléchargement, mais sans ponctuation et avec des
+    erreurs sur les noms et les chiffres), puis Whisper sur l'audio (``--whisper``).
     """
     manual = first_french(meta.sous_titres)
     if manual:
         return manual, False
-    if rapide:
+    if automatiques:
         auto = first_french(meta.sous_titres_auto)
         if auto:
             return auto, True
     return None
+
+
+# --- Recherche et chaînes -----------------------------------------------------------
+
+def normalize_entry(e: dict) -> dict:
+    vid = str(e.get("id") or "")
+    url = e.get("webpage_url") or e.get("url") or ""
+    if url and not url.startswith("http"):
+        url = f"https://www.youtube.com/watch?v={url}"
+    if not url and vid:
+        url = f"https://www.youtube.com/watch?v={vid}"
+    raw = str(e.get("upload_date") or "")
+    date = f"{raw[:4]}-{raw[4:6]}-{raw[6:8]}" if re.fullmatch(r"\d{8}", raw) else ""
+    return {"id": vid, "titre": (e.get("title") or "").strip(), "chaine": (e.get("channel") or e.get("uploader") or "").strip(),
+            "url": url, "date": date, "duree_s": e.get("duration"), "vues": e.get("view_count")}
+
+
+def search_videos(query: str, n: int = 10) -> list[dict]:
+    """Résultats de la recherche YouTube (sans clé d'API : yt-dlp interroge le site)."""
+    from yt_dlp import YoutubeDL
+
+    opts = {"quiet": True, "no_warnings": True, "extract_flat": True}
+    with YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(f"ytsearch{n}:{query}", download=False) or {}
+    return [normalize_entry(e) for e in info.get("entries") or [] if e]
+
+
+def render_search(query: str, results: list[dict], when: datetime) -> str:
+    lines = [f"# Recherche YouTube : {query}", "", f"Le {when:%d/%m/%Y à %H:%M} · {len(results)} résultat(s). "
+             "Pour analyser une vidéo : `vigie video \"<adresse>\"` puis `/analyse-video`.", "",
+             "| Titre | Chaîne | Date | Durée | Vues | Adresse |", "|---|---|---|---|---|---|"]
+    for r in results:
+        vues = f"{r['vues']:,}".replace(",", " ") if isinstance(r.get("vues"), int) else "?"
+        lines.append(f"| {r['titre'].replace('|', '¦')} | {r['chaine'].replace('|', '¦')} | {r['date'] or '?'} | "
+                     f"{format_duration(r['duree_s'])} | {vues} | <{r['url']}> |")
+    return "\n".join(lines) + "\n"
+
+
+def channel_id(url: str) -> str:
+    """Identifiant « UC… » d'une chaîne (nécessaire pour son flux de nouvelles vidéos)."""
+    from yt_dlp import YoutubeDL
+
+    opts = {"quiet": True, "no_warnings": True, "extract_flat": True, "playlist_items": "1"}
+    with YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=False) or {}
+    for key in ("channel_id", "uploader_id", "id"):
+        value = str(info.get(key) or "")
+        if value.startswith("UC"):
+            return value
+    return ""
 
 
 def download_subtitles(url: str, lang: str, auto: bool, dest_stem: Path) -> Path | None:
@@ -302,7 +362,7 @@ def update_index(root: Path, meta: VideoMeta, mode: str) -> Path:
 
 # --- Commande ---------------------------------------------------------------------
 
-def run_video(url: str, out_root: Path, transcripteur: Transcripteur | None = None, rapide: bool = False,
+def run_video(url: str, out_root: Path, transcripteur: Transcripteur | None = None,
               whisper: bool = False, sans_transcription: bool = False, forcer: bool = False,
               user_terms: list[str] | None = None, log: Callable[[str], None] = print) -> Path:
     """Dossier de la vidéo, avec sa transcription (sous-titres ou Whisper) et sa fiche à rédiger."""
@@ -324,7 +384,7 @@ def run_video(url: str, out_root: Path, transcripteur: Transcripteur | None = No
         log(f"  transcription déjà présente ({meta.transcription}) ; --forcer pour la refaire")
     else:
         mode = ""
-        choice = None if whisper else choose_subtitles(meta, rapide)
+        choice = None if whisper else choose_subtitles(meta)
         if choice:
             lang, auto = choice
             log(f"  sous-titres {'automatiques YouTube' if auto else 'fournis par la chaîne'} ({lang}) : récupération")
@@ -336,7 +396,7 @@ def run_video(url: str, out_root: Path, transcripteur: Transcripteur | None = No
             segments = vtt_to_segments(vtt) if vtt else []
             if segments:
                 write_outputs(segments, stem, meta.titre, meta.url, meta.duree_s)
-                mode = (f"sous-titres automatiques YouTube ({lang}), qualité moindre" if auto
+                mode = (f"sous-titres automatiques YouTube ({lang}) : relire noms et chiffres" if auto
                         else f"sous-titres fournis par la chaîne ({lang})")
         if not mode:
             audio = with_ext(dossier / "audio", ".m4a")
@@ -344,7 +404,7 @@ def run_video(url: str, out_root: Path, transcripteur: Transcripteur | None = No
                 log("  audio : téléchargement")
                 source = MediaSource(kind=meta.site if meta.site in ("youtube", "vimeo") else "fichier",
                                      url=url, key=f"{meta.site}:{meta.id}", duration_s=meta.duree_s)
-                audio, _ = download_audio(source, dossier / "audio", None, log=log)
+                audio, _ = download_audio(source, dossier / "audio", None, log=log, fmt=AUDIO_FORMAT)
             if sans_transcription:
                 mode = ""
                 log(f"  audio prêt : {audio.name} (transcription à lancer plus tard, sans --sans-transcription)")

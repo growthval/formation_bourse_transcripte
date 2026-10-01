@@ -1,35 +1,36 @@
-nom;pays;langue;theme;type;chaine;notes;actif
+nom;pays;langue;theme;type;chaine;id_chaine;notes;actif
 # Chaînes YouTube suivies. type = info | explicatif | entretien | institutionnel | opinion.
 # Toute chaîne « opinion » se recoupe avec au moins deux sources d'un autre type avant d'en tirer quoi que ce soit.
+# id_chaine (identifiant « UC… ») est rempli par « vigie chaines » : il sert au flux des nouvelles vidéos dans « vigie flux ».
 # Vérifier l'adresse exacte de chaque chaîne au premier usage (vigie video "adresse d'une vidéo").
-Finary;France;fr;finances personnelles, bourse;explicatif et entretiens;https://www.youtube.com/@Finary;Entreprise (application de suivi de patrimoine) : intérêt commercial à garder en tête. Chaîne de la vidéo « Personne n'est prêt pour 2027 »;oui
-Zonebourse;France;fr;bourse;info et pédagogie;https://www.youtube.com/@zonebourse;Éditeur de la formation suivie;oui
-Heu?reka;France;fr;économie, finance;explicatif;https://www.youtube.com/@Heureka;Vulgarisation rigoureuse (Gilles Mitteau);oui
-Le Dessous des cartes (Arte);France;fr;géopolitique;explicatif;https://www.youtube.com/@LeDessousdesCartesARTE;Cartes commentées, service public;oui
-Thinkerview;France;fr;entretiens longs (géopolitique, économie);entretien;https://www.youtube.com/@thinkerview;Invités hétérogènes : recouper systématiquement;oui
-Xerfi Canal;France;fr;économie;explicatif;https://www.youtube.com/@XerfiCanal;Économistes, formats courts;oui
-France 24;France;fr;actualité internationale;info;https://www.youtube.com/@FRANCE24;Service public;oui
-Arte;France;fr;documentaires;info;https://www.youtube.com/@arte;;oui
-Bloomberg Television;États-Unis;en;marchés;info;https://www.youtube.com/@markets;;oui
-CNBC Television;États-Unis;en;marchés;info;https://www.youtube.com/@CNBCtelevision;Court-termiste;oui
-Patrick Boyle;Royaume-Uni;en;finance;explicatif;https://www.youtube.com/@PBoyle;Ancien gérant, ton sobre, sceptique des bulles;oui
-The Plain Bagel;Canada;en;finance;explicatif;https://www.youtube.com/@ThePlainBagel;Analyste financier, posé;oui
-Ben Felix;Canada;en;investissement fondé sur les preuves;explicatif;https://www.youtube.com/@BenFelixCSI;Recherche académique, ETF;oui
-Dwarkesh Patel;États-Unis;en;IA, entretiens longs;entretien;https://www.youtube.com/@DwarkeshPatel;Entretiens de fond avec chercheurs et dirigeants de l'IA;oui
-AI Explained;Royaume-Uni;en;IA;explicatif;https://www.youtube.com/@aiexplained-official;Suivi des modèles, mesuré;oui
-Robert Miles AI Safety;Royaume-Uni;en;sécurité de l'IA;explicatif;https://www.youtube.com/@RobertMilesAI;Pédagogie de l'alignement;oui
-Anthropic;États-Unis;en;IA;institutionnel;https://www.youtube.com/@anthropic-ai;Communication d'entreprise;oui
-OpenAI;États-Unis;en;IA;institutionnel;https://www.youtube.com/@OpenAI;Communication d'entreprise;oui
-Google DeepMind;Royaume-Uni;en;IA;institutionnel;https://www.youtube.com/@GoogleDeepMind;Communication d'entreprise;oui
-Lex Fridman Podcast;États-Unis;en;entretiens (IA, science, politique);entretien;https://www.youtube.com/@lexfridman;Invités variés, peu de contradiction;oui
-Perun;Australie;en;économie de la défense;explicatif;https://www.youtube.com/@PerunAU;Analyses longues et sourcées (guerre en Ukraine, budgets militaires);oui
-Caspian Report;Azerbaïdjan;en;géopolitique;explicatif;https://www.youtube.com/@CaspianReport;;oui
-TLDR News Global;Royaume-Uni;en;actualité;explicatif;https://www.youtube.com/@TLDRnewsGLOBAL;Résumés courts, sources affichées;oui
-DW News;Allemagne;en;actualité;info;https://www.youtube.com/@dwnews;Service public allemand;oui
-Al Jazeera English;Qatar;en;actualité;info;https://www.youtube.com/@aljazeeraenglish;Financement qatari;oui
-Firstpost (Vantage);Inde;en;géopolitique;info;https://www.youtube.com/@Firstpost;Point de vue indien, ton engagé : recouper;oui
-CGTN;Chine;en;actualité;institutionnel;https://www.youtube.com/@CGTN;Média d'État chinois : position officielle;oui
-The Economist;Royaume-Uni;en;actualité;explicatif;https://www.youtube.com/@TheEconomist;;oui
-Financial Times;Royaume-Uni;en;finance;info;https://www.youtube.com/@FinancialTimes;;oui
-Institut des Libertés (Charles Gave);France;fr;économie, marchés;opinion;https://www.youtube.com/@institutdeslibertes;Opinion libérale affirmée : confronter les prévisions aux faits;oui
-Grand Angle (Richard Détente);France;fr;économie, or;opinion;https://www.youtube.com/@GrandAngleEco;Thèses marquées (or, dette) et produits à vendre : recouper;oui
+Finary;France;fr;finances personnelles, bourse;explicatif et entretiens;https://www.youtube.com/@Finary;;Entreprise (application de suivi de patrimoine) : intérêt commercial à garder en tête. Chaîne de la vidéo « Personne n'est prêt pour 2027 »;oui
+Zonebourse;France;fr;bourse;info et pédagogie;https://www.youtube.com/@zonebourse;;Éditeur de la formation suivie;oui
+Heu?reka;France;fr;économie, finance;explicatif;https://www.youtube.com/@Heureka;;Vulgarisation rigoureuse (Gilles Mitteau);oui
+Le Dessous des cartes (Arte);France;fr;géopolitique;explicatif;https://www.youtube.com/@LeDessousdesCartesARTE;;Cartes commentées, service public;oui
+Thinkerview;France;fr;entretiens longs (géopolitique, économie);entretien;https://www.youtube.com/@thinkerview;;Invités hétérogènes : recouper systématiquement;oui
+Xerfi Canal;France;fr;économie;explicatif;https://www.youtube.com/@XerfiCanal;;Économistes, formats courts;oui
+France 24;France;fr;actualité internationale;info;https://www.youtube.com/@FRANCE24;;Service public;oui
+Arte;France;fr;documentaires;info;https://www.youtube.com/@arte;;;oui
+Bloomberg Television;États-Unis;en;marchés;info;https://www.youtube.com/@markets;;;oui
+CNBC Television;États-Unis;en;marchés;info;https://www.youtube.com/@CNBCtelevision;;Court-termiste;oui
+Patrick Boyle;Royaume-Uni;en;finance;explicatif;https://www.youtube.com/@PBoyle;;Ancien gérant, ton sobre, sceptique des bulles;oui
+The Plain Bagel;Canada;en;finance;explicatif;https://www.youtube.com/@ThePlainBagel;;Analyste financier, posé;oui
+Ben Felix;Canada;en;investissement fondé sur les preuves;explicatif;https://www.youtube.com/@BenFelixCSI;;Recherche académique, ETF;oui
+Dwarkesh Patel;États-Unis;en;IA, entretiens longs;entretien;https://www.youtube.com/@DwarkeshPatel;;Entretiens de fond avec chercheurs et dirigeants de l'IA;oui
+AI Explained;Royaume-Uni;en;IA;explicatif;https://www.youtube.com/@aiexplained-official;;Suivi des modèles, mesuré;oui
+Robert Miles AI Safety;Royaume-Uni;en;sécurité de l'IA;explicatif;https://www.youtube.com/@RobertMilesAI;;Pédagogie de l'alignement;oui
+Anthropic;États-Unis;en;IA;institutionnel;https://www.youtube.com/@anthropic-ai;;Communication d'entreprise;oui
+OpenAI;États-Unis;en;IA;institutionnel;https://www.youtube.com/@OpenAI;;Communication d'entreprise;oui
+Google DeepMind;Royaume-Uni;en;IA;institutionnel;https://www.youtube.com/@GoogleDeepMind;;Communication d'entreprise;oui
+Lex Fridman Podcast;États-Unis;en;entretiens (IA, science, politique);entretien;https://www.youtube.com/@lexfridman;;Invités variés, peu de contradiction;oui
+Perun;Australie;en;économie de la défense;explicatif;https://www.youtube.com/@PerunAU;;Analyses longues et sourcées (guerre en Ukraine, budgets militaires);oui
+Caspian Report;Azerbaïdjan;en;géopolitique;explicatif;https://www.youtube.com/@CaspianReport;;;oui
+TLDR News Global;Royaume-Uni;en;actualité;explicatif;https://www.youtube.com/@TLDRnewsGLOBAL;;Résumés courts, sources affichées;oui
+DW News;Allemagne;en;actualité;info;https://www.youtube.com/@dwnews;;Service public allemand;oui
+Al Jazeera English;Qatar;en;actualité;info;https://www.youtube.com/@aljazeeraenglish;;Financement qatari;oui
+Firstpost (Vantage);Inde;en;géopolitique;info;https://www.youtube.com/@Firstpost;;Point de vue indien, ton engagé : recouper;oui
+CGTN;Chine;en;actualité;institutionnel;https://www.youtube.com/@CGTN;;Média d'État chinois : position officielle;oui
+The Economist;Royaume-Uni;en;actualité;explicatif;https://www.youtube.com/@TheEconomist;;;oui
+Financial Times;Royaume-Uni;en;finance;info;https://www.youtube.com/@FinancialTimes;;;oui
+Institut des Libertés (Charles Gave);France;fr;économie, marchés;opinion;https://www.youtube.com/@institutdeslibertes;;Opinion libérale affirmée : confronter les prévisions aux faits;oui
+Grand Angle (Richard Détente);France;fr;économie, or;opinion;https://www.youtube.com/@GrandAngleEco;;Thèses marquées (or, dette) et produits à vendre : recouper;oui

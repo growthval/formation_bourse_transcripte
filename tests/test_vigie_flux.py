@@ -233,3 +233,60 @@ def test_check_feeds_flags_stale_feeds(tmp_path: Path):
     status = {s.nom: (ok, msg) for s, ok, msg in results}
     assert not status["Vieux"][0] and "abandonné" in status["Vieux"][1]
     assert status["Frais"][0]
+
+
+YT_FEED = ("""<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/" xmlns="http://www.w3.org/2005/Atom">
+<title>Finary</title>
+<entry><yt:videoId>UUSUEcZg5Cw</yt:videoId><title>Personne n'est prêt pour 2027</title>
+<link rel="alternate" href="https://www.youtube.com/watch?v=UUSUEcZg5Cw"/><published>2026-09-30T16:00:00+00:00</published>
+<media:group><media:description>00:00 Introduction 00:48 L'accélération</media:description></media:group></entry>
+<entry><yt:videoId>old00000000</yt:videoId><title>Vieille vidéo</title>
+<link rel="alternate" href="https://www.youtube.com/watch?v=old00000000"/><published>2026-08-01T16:00:00+00:00</published></entry>
+</feed>""").encode("utf-8")
+
+
+def test_flux_includes_channel_videos_and_cited_videos(tmp_path: Path):
+    from vigie.flux import cited_videos
+
+    chaines = tmp_path / "youtube.csv"
+    chaines.write_text("nom;pays;langue;theme;type;chaine;id_chaine;notes;actif\n"
+                       "Finary;France;fr;finance;explicatif;https://www.youtube.com/@Finary;UCfinary0001;;oui\n"
+                       "Sans id;;;;;https://www.youtube.com/@x;;;oui\n", encoding="utf-8")
+    rss_with_link = RSS.replace(b"<description>&lt;p&gt;Les banques centrales", b"<description>Voir https://youtu.be/UUSUEcZg5Cw et &lt;p&gt;Les banques centrales")
+    fetch = _fake_fetch({"https://journal.example/rss": rss_with_link, "https://blog.example/atom": ATOM,
+                         "https://www.youtube.com/feeds/videos.xml?channel_id=UCfinary0001": YT_FEED})
+    path = run_flux(_sources_csv(tmp_path), tmp_path / "j", days=2, fetch_fn=fetch, now=NOW, log=lambda _: None, chaines_path=chaines)
+    text = path.read_text(encoding="utf-8")
+    assert "## Nouvelles vidéos des chaînes suivies" in text and "### Finary" in text
+    assert "[Personne n'est prêt pour 2027](https://www.youtube.com/watch?v=UUSUEcZg5Cw) — 30/09" in text
+    assert "00:00 Introduction" in text and "Vieille vidéo" not in text
+    assert "1 chaîne(s), 1 vidéo(s)" in text
+    assert "## Vidéos citées dans les articles" in text
+    assert "- <https://www.youtube.com/watch?v=UUSUEcZg5Cw> — citée par Le Journal" in text
+    assert cited_videos([Entree("s", "t", "https://www.youtube.com/shorts/abcdefghijk", None, "voir youtu.be/abcdefghijk aussi")]) == [
+        ("https://www.youtube.com/watch?v=abcdefghijk", Entree("s", "t", "https://www.youtube.com/shorts/abcdefghijk", None, "voir youtu.be/abcdefghijk aussi"))]
+    # --seulement : les chaînes ne sont pas interrogées ; --sans-videos : chaines_path=None
+    text2 = run_flux(_sources_csv(tmp_path), tmp_path / "j2", days=2, only=["journal"], fetch_fn=fetch, now=NOW,
+                     log=lambda _: None, chaines_path=chaines).read_text(encoding="utf-8")
+    assert "chaînes suivies" not in text2
+
+
+def test_sanitize_bare_ampersand_and_control_chars():
+    from vigie.flux import sanitize_xml
+
+    dirty = b"<rss><channel><item><title>AT&T &amp; Brookings\x0b</title><link>https://x/1</link></item></channel></rss>"
+    assert parse_feed(dirty, "s")[0].titre == "AT&T & Brookings"
+    assert sanitize_xml(b"a &#233; &#x41; &amp; b") == b"a &#233; &#x41; &amp; b"
+
+
+def test_read_rows_and_rewrite_rows_keep_comments_and_add_columns(tmp_path: Path):
+    from vigie.sources import read_rows, rewrite_rows
+
+    csv = tmp_path / "r.csv"
+    csv.write_bytes("\ufeffnom;notes;actif\n# garde-moi\nA;x;oui\nB;;non\n\n".encode("utf-8"))
+    cols, rows = read_rows(csv)
+    assert cols == ["nom", "notes", "actif"] and rows == [{"nom": "A", "notes": "x", "actif": "oui"}, {"nom": "B", "notes": "", "actif": "non"}]
+    n = rewrite_rows(csv, lambda r: r.update(extra="e") if r["nom"] == "A" else None, ensure_columns=["extra"])
+    text = csv.read_bytes().decode("utf-8-sig")
+    assert n == 1 and text == "nom;notes;actif;extra\n# garde-moi\nA;x;oui;e\nB;;non;\n\n"

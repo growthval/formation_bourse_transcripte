@@ -17,7 +17,7 @@ Le Grand Continent;France;fr;geopolitique;revue (Groupe d'études géopolitiques
 INSEE;France;fr;institution;statistique publique;;https://www.insee.fr;Inflation, chômage, PIB : source primaire;oui
 Banque de France;France;fr;institution;banque centrale;;https://www.banque-france.fr;Projections, enquêtes de conjoncture;oui
 AMF;France;fr;institution;régulateur des marchés;;https://www.amf-france.org;Alertes et listes noires (arnaques à l'investissement);oui
-Zonebourse;France;fr;economie;marchés (éditeur de la formation);;https://www.zonebourse.com;Actualités sociétés, consensus, screening;oui
+Zonebourse;France;fr;economie;marchés (éditeur de la formation);;https://www.zonebourse.com/actualite-bourse/;Pas de flux RSS public connu : /veille lit la page d'actualités. Actualités sociétés, consensus, screening;oui
 Boursorama;France;fr;economie;marchés (groupe Société Générale);;https://www.boursorama.com;Cotations. Forums = bruit;oui
 Investir (Les Echos);France;fr;economie;conseils boursiers;;https://investir.lesechos.fr;Hebdo, conseils : à prendre comme opinions;oui
 Financial Times;Royaume-Uni;en;economie;libéral (groupe Nikkei);https://www.ft.com/rss/home;https://www.ft.com;Référence mondiale finance. Payant;oui
@@ -28,7 +28,7 @@ Reuters;Royaume-Uni;en;presse;agence;;https://www.reuters.com;Agence de référe
 Der Spiegel International;Allemagne;en;presse;centre-gauche;https://www.spiegel.de/international/index.rss;https://www.spiegel.de/international;Allemagne en anglais;oui
 Frankfurter Allgemeine Zeitung;Allemagne;de;presse;centre-droit;;https://www.faz.net;;oui
 Handelsblatt;Allemagne;de;economie;économie, libéral;;https://www.handelsblatt.com;Industrie allemande;oui
-Corriere della Sera;Italie;it;presse;centre;https://xml2.corriereobjects.it/rss/esteri.xml;https://www.corriere.it;Le flux « homepage » est figé depuis 2024 : flux international à la place (à tester) ;oui
+Corriere della Sera;Italie;it;presse;centre;;https://www.corriere.it;Flux RSS figés (homepage 2024, esteri 2025) : lire le site, et l'agence ANSA couvre l'Italie dans le digest;oui
 ANSA;Italie;it;presse;agence;https://www.ansa.it/sito/notizie/topnews/topnews_rss.xml;https://www.ansa.it;Agence de presse italienne (à tester);oui
 El País;Espagne;es;presse;centre-gauche;;https://elpais.com;Édition en anglais : english.elpais.com;oui
 NZZ;Suisse;de;presse;libéral-conservateur;https://www.nzz.ch/international.rss;https://www.nzz.ch;;oui
@@ -78,7 +78,7 @@ IFRI;France;fr;geopolitique;think tank;;https://www.ifri.org;;oui
 IRIS;France;fr;geopolitique;think tank;;https://www.iris-france.org;;oui
 Institut Montaigne;France;fr;geopolitique;think tank libéral;;https://www.institutmontaigne.org;;oui
 Fondation Robert Schuman;France;fr;geopolitique;think tank européen;;https://www.robert-schuman.eu;;oui
-ECFR;Europe;en;geopolitique;think tank;https://ecfr.eu/feed/;https://ecfr.eu;Refus 403 le 01/10/2026 : second essai automatique avec un en-tête de navigateur, et si l'erreur persiste, vider l'adresse;oui
+ECFR;Europe;en;geopolitique;think tank;;https://ecfr.eu;Flux refusé (403, protection anti-robot) : lire le site;oui
 Chatham House;Royaume-Uni;en;geopolitique;think tank;;https://www.chathamhouse.org;;oui
 CSIS;États-Unis;en;geopolitique;think tank (financements d'entreprises de défense à garder en tête);;https://www.csis.org;;oui
 Carnegie Endowment;États-Unis;en;geopolitique;think tank;;https://carnegieendowment.org;;oui
@@ -100,7 +100,7 @@ The Straits Times;Singapour;en;presse;proche du gouvernement;;https://www.strait
 ABC News (Australie);Australie;en;presse;service public;https://www.abc.net.au/news/feed/51120/rss.xml;https://www.abc.net.au/news;Indo-Pacifique;oui
 Al Jazeera English;Qatar;en;presse;financé par le Qatar;https://www.aljazeera.com/xml/rss/all.xml;https://www.aljazeera.com;Monde arabe, Sud global. Pondérer sur le Golfe;oui
 Haaretz;Israël;en;presse;centre-gauche;;https://www.haaretz.com;;oui
-The Times of Israel;Israël;en;presse;centre;https://www.timesofisrael.com/feed/;https://www.timesofisrael.com;Refus 403 le 01/10/2026 : second essai automatique avec un en-tête de navigateur, et si l'erreur persiste, vider l'adresse;oui
+The Times of Israel;Israël;en;presse;centre;;https://www.timesofisrael.com;Flux refusé (403, protection anti-robot) : lire le site;oui
 Al-Monitor;États-Unis;en;presse;spécialisé Moyen-Orient;;https://www.al-monitor.com;;oui
 Jeune Afrique;France;fr;presse;centre;;https://www.jeuneafrique.com;Afrique francophone;oui
 Daily Maverick;Afrique du Sud;en;presse;indépendant;;https://www.dailymaverick.co.za;;oui
