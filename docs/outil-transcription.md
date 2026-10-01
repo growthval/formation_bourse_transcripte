@@ -25,15 +25,15 @@ L'outil ouvre une fenêtre de navigateur où **vous vous connectez vous-même** 
 2. Lancez l'installateur et **cochez « Add python.exe to PATH »** en bas de la première fenêtre, puis « Install Now ».
 3. À la fin, si le bouton **« Disable path length limit »** apparaît, cliquez dessus.
 
-### 1.2 Télécharger l'outil dans `C:\formation`
+### 1.2 Télécharger l'outil dans `E:\vigie`
 
 1. Sur la page GitHub du projet, bouton vert **Code → Download ZIP**.
-2. Ouvrez le ZIP (ou clonez le dépôt avec git) : **copiez tout le contenu** (les dossiers `podia_formation`, `vigie`, `tests`, `.claude`… et les fichiers `installer_windows.bat`, `formation.bat`, `vigie.bat`) dans un nouveau dossier **`C:\formation`**.
+2. Ouvrez le ZIP (ou clonez le dépôt avec git) : **copiez tout le contenu** (les dossiers `podia_formation`, `vigie`, `tests`, `.claude`… et les fichiers `installer_windows.bat`, `formation.bat`, `vigie.bat`) dans un nouveau dossier **`E:\vigie`**.
    Un chemin court évite les erreurs de chemin trop long de Windows. Évitez aussi les dossiers synchronisés par OneDrive (« Documents », « Bureau »).
 
 ### 1.3 Lancer l'installation
 
-Double-cliquez sur **`C:\formation\installer_windows.bat`**. Il :
+Double-cliquez sur **`E:\vigie\installer_windows.bat`**. Il :
 - crée l'environnement Python de l'outil ;
 - installe les bibliothèques (yt-dlp, Playwright, faster-whisper…) ;
 - détecte votre **carte graphique NVIDIA** et installe alors les bibliothèques CUDA (environ 1 Go).
@@ -44,8 +44,8 @@ L'outil utilise **Microsoft Edge**, déjà présent sur Windows : rien d'autre �
 
 ### 1.4 Ouvrir l'invite de commandes au bon endroit
 
-Toutes les commandes de ce guide se tapent dans l'**invite de commandes** ouverte dans `C:\formation` :
-ouvrez le dossier `C:\formation` dans l'Explorateur, cliquez dans la barre d'adresse, tapez **`cmd`** puis Entrée.
+Toutes les commandes de ce guide se tapent dans l'**invite de commandes** ouverte dans `E:\vigie` :
+ouvrez le dossier `E:\vigie` dans l'Explorateur, cliquez dans la barre d'adresse, tapez **`cmd`** puis Entrée.
 
 <details>
 <summary>macOS / Linux</summary>
@@ -159,7 +159,7 @@ formation tout "https://zonebourse.podia.com/p/courses/investir-en-bourse/341447
 
 ---
 
-## 3. Ce que vous obtenez (dossier `C:\formation\formation\`)
+## 3. Ce que vous obtenez (dossier `E:\vigie\formation\`)
 
 | Fichier / dossier | Contenu |
 |---|---|

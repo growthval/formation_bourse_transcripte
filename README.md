@@ -22,8 +22,11 @@ complot, l'incertitude écrite, et jamais d'ordre d'achat ou de vente : des opti
 
 ## Démarrage rapide
 
-1. **Récupérer le projet** : `git clone` du dépôt dans un dossier court, par exemple `C:\formation`
-   (éviter OneDrive), ou bouton « Code → Download ZIP ».
+1. **Récupérer le projet** sur le disque `E:`, dans un dossier court et hors OneDrive :
+   ```bat
+   git clone -b claude/eager-goodall-bdijp5 https://github.com/growthval/formation_bourse_transcripte E:\vigie
+   ```
+   (ou bouton « Code → Download ZIP », puis copier le contenu dans `E:\vigie`).
 2. **Installer** (Windows) : double-clic sur `installer_windows.bat` (Python 3.12, environnement, bibliothèques,
    CUDA si carte NVIDIA). macOS/Linux : voir le guide de l'outil.
 3. **Transcrire la formation** (une fois, plusieurs heures) :
