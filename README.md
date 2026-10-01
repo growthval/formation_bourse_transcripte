@@ -26,7 +26,10 @@ complot, l'incertitude écrite, et jamais d'ordre d'achat ou de vente : des opti
    ```bat
    git clone -b claude/eager-goodall-bdijp5 https://github.com/growthval/formation_bourse_transcripte E:\vigie
    ```
-   (ou bouton « Code → Download ZIP », puis copier le contenu dans `E:\vigie`).
+   (ou bouton « Code → Download ZIP », puis copier le contenu dans `E:\vigie`). Le nom du dossier est libre.
+   **Si l'outil de transcription est déjà installé** (dossier avec `.venv\` et `formation\` transcrit) : ne rien
+   recopier, passer ce dossier sur la branche du projet : `git fetch origin` puis
+   `git checkout claude/eager-goodall-bdijp5` ; `formation\` et `.venv\` sont conservés.
 2. **Installer** (Windows) : double-clic sur `installer_windows.bat` (Python 3.12, environnement, bibliothèques,
    CUDA si carte NVIDIA). macOS/Linux : voir le guide de l'outil.
 3. **Transcrire la formation** (une fois, plusieurs heures) :

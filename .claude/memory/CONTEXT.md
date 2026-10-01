@@ -2,8 +2,9 @@
 # Contexte courant — Vigie
 
 ## Priorités
-1. Mettre le projet en route sur la machine locale : installation (`installer_windows.bat`), transcription
-   de la formation (`formation audio` puis `formation transcrire`), test des flux (`vigie sources --tester`).
+1. Mettre le projet en route sur la machine locale (`E:\formation`, où la formation est **déjà transcrite
+   en intégralité** dans `formation/` depuis le 01/10/2026) : passer le dépôt sur la branche du projet,
+   tester les flux (`vigie sources --tester`).
 2. Première analyse : la vidéo Finary « Personne n'est prêt pour 2027 » (`/analyse-video`), puis le
    scénario AI 2027 et ses critiques (`/dossier ia-avenir-et-risques`).
 3. Première veille (`/veille`) et premier remplissage de `plan/signaux.md` ; `/formation synthèse`.
